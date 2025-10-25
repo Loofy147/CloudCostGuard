@@ -1,0 +1,22 @@
+{
+  "resource_changes": [
+    {
+      "address": "aws_s3_bucket.data",
+      "type": "aws_s3_bucket",
+      "change": {
+        "actions": ["create"]
+      },
+      "after": {}
+    },
+    {
+      "address": "aws_db_instance.db",
+      "type": "aws_db_instance",
+      "change": {
+        "actions": ["create"]
+      },
+      "after": {
+        "instance_class": "db.t2.micro"
+      }
+    }
+  ]
+}

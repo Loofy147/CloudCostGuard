@@ -1,0 +1,17 @@
+{
+  "resource_changes": [
+    {
+      "address": "aws_instance.web",
+      "type": "aws_instance",
+      "change": {
+        "actions": ["delete", "create"]
+      },
+      "before": {
+        "instance_type": "t2.micro"
+      },
+      "after": {
+        "instance_type": "t2.small"
+      }
+    }
+  ]
+}

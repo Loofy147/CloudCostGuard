@@ -1,0 +1,14 @@
+{
+  "resource_changes": [
+    {
+      "address": "aws_lb.web",
+      "type": "aws_lb",
+      "change": {
+        "actions": ["create"]
+      },
+      "after": {
+        "load_balancer_type": "application"
+      }
+    }
+  ]
+}
