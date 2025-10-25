@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:13-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: pricing
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "postgres://postgres:password@db:5432/pricing?sslmode=disable"
+
+  mock-github:
+    build:
+      context: .
+      dockerfile: test/mock-github/Dockerfile
+    ports:
+      - "8081:8081"
+
+  cli-tester:
+    build:
+      context: .
+      dockerfile: cmd/cloudcostguard/Dockerfile
+    depends_on:
+      - backend
+      - mock-github
+    environment:
+      CCG_BACKEND_URL: "http://backend:8080"
+      GITHUB_API_URL: "http://mock-github:8081"
+      GITHUB_TOKEN: "test-token"
+    command: ["./cloudcostguard", "analyze", "/testdata/create_ec2.json", "test-org/test-repo", "1"]

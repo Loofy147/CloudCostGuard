@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"cloudcostguard/internal/pricing"
-	"cloudcostguard/internal/terraform"
+	"cloudcostguard/backend/pricing"
+	"cloudcostguard/backend/terraform"
 )
 
 type Cost struct {

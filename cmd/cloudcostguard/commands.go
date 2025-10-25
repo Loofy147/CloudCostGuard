@@ -1,15 +1,13 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
-	"strconv"
 
 	"cloudcostguard/internal/config"
-	"cloudcostguard/internal/estimator"
 	"cloudcostguard/internal/github"
-	"cloudcostguard/internal/pricing"
-	"cloudcostguard/internal/terraform"
 	"github.com/spf13/cobra"
 )
 
@@ -18,7 +16,7 @@ func init() {
 }
 
 var analyzeCmd = &cobra.Command{
-	Use:   "analyze [PLAN_JSON_PATH] [GITHUB_REPO] [PR_NUMBER]",
+	Use:   "analyze [PLAN_JSON_PATH]",
 	Short: "Analyzes a Terraform plan and posts the cost estimate to a GitHub PR.",
 	Args:  cobra.RangeArgs(0, 3),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -31,24 +29,21 @@ var analyzeCmd = &cobra.Command{
 		repo := ""
 		prNumberStr := ""
 
-		// Load from config file first
 		cfg, err := config.LoadConfig(".cloudcostguard.yml")
 		if err == nil {
 			repo = cfg.GitHub.Repo
-			prNumberStr = strconv.Itoa(cfg.GitHub.PRNumber)
+			prNumberStr = fmt.Sprintf("%d", cfg.GitHub.PRNumber)
 		} else if !os.IsNotExist(err) {
 			return fmt.Errorf("could not load config file: %w", err)
 		}
 
-		// Override with CLI arguments if provided
 		if len(args) == 3 {
 			repo = args[1]
 			prNumberStr = args[2]
 		}
 
-		// Final check
 		if repo == "" || prNumberStr == "" {
-			return fmt.Errorf("github repo and PR number must be provided via config file or CLI arguments")
+			return fmt.Errorf("github repo and PR number must be provided")
 		}
 
 		githubToken := os.Getenv("GITHUB_TOKEN")
@@ -63,36 +58,36 @@ var analyzeCmd = &cobra.Command{
 		}
 		defer planFile.Close()
 
-		plan, err := terraform.ParsePlan(planFile)
+		// 1. Call the backend API
+		backendURL := os.Getenv("CCG_BACKEND_URL")
+		if backendURL == "" {
+			backendURL = "http://localhost:8080"
+		}
+
+		req, err := http.NewRequest("POST", backendURL+"/estimate", planFile)
 		if err != nil {
-			return fmt.Errorf("could not parse plan file: %w", err)
+			return fmt.Errorf("failed to create request to backend: %w", err)
 		}
+		req.Header.Set("Content-Type", "application/json")
 
-		fmt.Println("Fetching latest AWS pricing data...")
-		priceList := pricing.NewPriceList()
-		if os.Getenv("CCG_TEST_MODE") == "true" {
-			if err := priceList.LoadFromFile("../../testdata/aws_pricing.json"); err != nil {
-				return fmt.Errorf("could not load mock pricing data: %w", err)
-			}
-		} else {
-			urls := []string{
-				"https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonEC2/current/index.json",
-				"https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonRDS/current/index.json",
-				"https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonS3/current/index.json",
-				"https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonElasticLoadBalancing/current/index.json",
-			}
-			for _, url := range urls {
-				if err := priceList.LoadFromURL(url); err != nil {
-					fmt.Printf("Warning: could not load pricing data from %s: %v\n", url, err)
-				}
-			}
-		}
-
-		cost, err := estimator.Estimate(plan, priceList)
+		client := &http.Client{}
+		resp, err := client.Do(req)
 		if err != nil {
-			return fmt.Errorf("could not estimate cost: %w", err)
+			return fmt.Errorf("failed to call backend: %w", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("backend returned an error: %s", resp.Status)
 		}
 
+		var result map[string]float64
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return fmt.Errorf("failed to decode backend response: %w", err)
+		}
+		cost := result["estimated_monthly_cost"]
+
+		// 2. Post the comment to GitHub
 		comment := fmt.Sprintf("## CloudCostGuard Analysis 🤖\n\nEstimated Monthly Cost Impact: **$%.2f**", cost)
 		if err := github.PostComment(repo, prNumberStr, githubToken, comment); err != nil {
 			return fmt.Errorf("could not post comment to GitHub: %w", err)

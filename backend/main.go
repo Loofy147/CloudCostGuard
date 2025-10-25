@@ -1,0 +1,120 @@
+package main
+
+import (
+	"cloudcostguard/backend/database"
+	"cloudcostguard/backend/estimator"
+	"cloudcostguard/backend/pricing"
+	"cloudcostguard/backend/terraform"
+	"encoding/json"
+	"fmt"
+	"log"
+	"net/http"
+	"sync"
+	"time"
+)
+
+var (
+	pricingCache *pricing.PriceList
+	cacheMutex   sync.RWMutex
+)
+
+func main() {
+	database.InitDB()
+	startPricingService() // This will populate the DB in the background
+
+	// Initial cache load
+	fmt.Println("Performing initial load of pricing cache...")
+	if err := refreshPricingCache(); err != nil {
+		log.Printf("Warning: initial pricing cache load failed: %v. Will retry.", err)
+	}
+
+	// Start periodic cache refresh
+	go func() {
+		for {
+			time.Sleep(6 * time.Hour)
+			fmt.Println("Refreshing pricing cache...")
+			if err := refreshPricingCache(); err != nil {
+				log.Printf("Warning: periodic pricing cache refresh failed: %v", err)
+			}
+		}
+	}()
+
+	http.HandleFunc("/estimate", estimateHandler)
+
+	fmt.Println("Starting CloudCostGuard backend server on :8080...")
+	if err := http.ListenAndServe(":8080", nil); err != nil {
+		log.Fatalf("Failed to start server: %v", err)
+	}
+}
+
+func estimateHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Only POST method is allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	plan, err := terraform.ParsePlan(r.Body)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to parse Terraform plan: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	cacheMutex.RLock()
+	currentPriceList := pricingCache
+	cacheMutex.RUnlock()
+
+	if currentPriceList == nil {
+		http.Error(w, "Pricing data is not yet available. Please try again in a few minutes.", http.StatusServiceUnavailable)
+		return
+	}
+
+	cost, err := estimator.Estimate(plan, currentPriceList)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to estimate cost: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	response := map[string]float64{"estimated_monthly_cost": cost}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+	}
+}
+
+func refreshPricingCache() error {
+    rows, err := database.DB.Query("SELECT sku, product_json, terms_json FROM aws_prices")
+    if err != nil {
+        return err
+    }
+    defer rows.Close()
+
+    newPriceList := pricing.NewPriceList()
+    for rows.Next() {
+        var sku string
+        var productJSON, termsJSON []byte
+        if err := rows.Scan(&sku, &productJSON, &termsJSON); err != nil {
+            return err
+        }
+
+        var product pricing.Product
+        if err := json.Unmarshal(productJSON, &product); err != nil {
+			fmt.Printf("Warning: could not unmarshal product for SKU %s: %v\n", sku, err)
+            continue
+        }
+        newPriceList.Products[sku] = product
+
+        var terms map[string]pricing.Term
+        if err := json.Unmarshal(termsJSON, &terms); err != nil {
+			fmt.Printf("Warning: could not unmarshal terms for SKU %s: %v\n", sku, err)
+            continue
+        }
+		newPriceList.Terms.OnDemand[sku] = terms
+    }
+
+	cacheMutex.Lock()
+	pricingCache = newPriceList
+	cacheMutex.Unlock()
+	fmt.Println("Pricing cache refresh complete.")
+    return nil
+}
