@@ -1,0 +1,15 @@
+{
+  "resource_changes": [
+    {
+      "address": "aws_ebs_volume.data",
+      "type": "aws_ebs_volume",
+      "change": {
+        "actions": ["create"]
+      },
+      "after": {
+        "size": 100,
+        "type": "gp2"
+      }
+    }
+  ]
+}

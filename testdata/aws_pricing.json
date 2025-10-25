@@ -1,0 +1,18 @@
+{
+  "products": {
+    "EC2_T2_MICRO": { "sku": "EC2_T2_MICRO", "attributes": { "servicecode": "AmazonEC2", "instanceType": "t2.micro", "location": "US East (N. Virginia)", "operatingSystem": "Linux", "usagetype": "BoxUsage:t2.micro" }},
+    "EC2_T2_SMALL": { "sku": "EC2_T2_SMALL", "attributes": { "servicecode": "AmazonEC2", "instanceType": "t2.small", "location": "US East (N. Virginia)", "operatingSystem": "Linux", "usagetype": "BoxUsage:t2.small" }},
+    "RDS_T2_MICRO": { "sku": "RDS_T2_MICRO", "attributes": { "servicecode": "AmazonRDS", "instanceClass": "db.t2.micro", "location": "US East (N. Virginia)" }},
+    "EBS_GP2": { "sku": "EBS_GP2", "attributes": { "servicecode": "AmazonEC2", "volumeApiName": "gp2", "location": "US East (N. Virginia)" }},
+    "ELB_APP": { "sku": "ELB_APP", "attributes": { "servicecode": "AWSELB", "group": "ELB-Application", "location": "US East (N. Virginia)" }}
+  },
+  "terms": {
+    "OnDemand": {
+      "EC2_T2_MICRO": { "EC2_T2_MICRO.TERM": { "priceDimensions": { "EC2_T2_MICRO.TERM.DIM": { "pricePerUnit": { "USD": "0.0116" }}}}},
+      "EC2_T2_SMALL": { "EC2_T2_SMALL.TERM": { "priceDimensions": { "EC2_T2_SMALL.TERM.DIM": { "pricePerUnit": { "USD": "0.023" }}}}},
+      "RDS_T2_MICRO": { "RDS_T2_MICRO.TERM": { "priceDimensions": { "RDS_T2_MICRO.TERM.DIM": { "pricePerUnit": { "USD": "0.017" }}}}},
+      "EBS_GP2": { "EBS_GP2.TERM": { "priceDimensions": { "EBS_GP2.TERM.DIM": { "pricePerUnit": { "USD": "0.10" }}}}},
+      "ELB_APP": { "ELB_APP.TERM": { "priceDimensions": { "ELB_APP.TERM.DIM": { "pricePerUnit": { "USD": "0.0225" }}}}}
+    }
+  }
+}

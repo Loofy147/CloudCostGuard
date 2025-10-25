@@ -1,0 +1,24 @@
+{
+  "resource_changes": [
+    {
+      "address": "aws_instance.web[\"a\"]",
+      "type": "aws_instance",
+      "change": {
+        "actions": ["create"]
+      },
+      "after": {
+        "instance_type": "t2.micro"
+      }
+    },
+    {
+      "address": "aws_instance.web[\"b\"]",
+      "type": "aws_instance",
+      "change": {
+        "actions": ["create"]
+      },
+      "after": {
+        "instance_type": "t2.micro"
+      }
+    }
+  ]
+}
