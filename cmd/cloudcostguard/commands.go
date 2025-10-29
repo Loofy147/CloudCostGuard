@@ -15,6 +15,9 @@ func init() {
 	rootCmd.AddCommand(analyzeCmd)
 }
 
+// analyzeCmd represents the analyze command, which is the main entry point for the CLI tool.
+// It reads a Terraform plan, sends it to the backend for cost estimation, and posts the results
+// as a comment on a GitHub pull request.
 var analyzeCmd = &cobra.Command{
 	Use:   "analyze [PLAN_JSON_PATH]",
 	Short: "Analyzes a Terraform plan and posts the cost estimate to a GitHub PR.",
