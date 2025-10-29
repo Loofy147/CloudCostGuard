@@ -24,11 +24,11 @@ type Cost struct {
 //
 // Returns:
 //   The total estimated monthly cost impact, or an error if the estimation fails.
-func Estimate(plan *terraform.Plan, priceList *pricing.PriceList, region string) (float64, error) {
+func Estimate(plan *terraform.Plan, priceList *pricing.PriceList, region string, usage *UsageEstimates) (float64, error) {
 	location := toLocation(region)
 	var totalMonthlyCost float64
 	for _, rc := range plan.ResourceChanges {
-		cost, err := estimateResourceChange(rc, priceList, location)
+		cost, err := estimateResourceChange(rc, priceList, location, usage)
 		if err != nil {
 			fmt.Printf("Warning: skipping unsupported resource %s: %v\n", rc.Address, err)
 			continue
@@ -43,7 +43,7 @@ func Estimate(plan *terraform.Plan, priceList *pricing.PriceList, region string)
 	return totalMonthlyCost, nil
 }
 
-func estimateResourceChange(rc *terraform.ResourceChange, priceList *pricing.PriceList, region string) (*Cost, error) {
+func estimateResourceChange(rc *terraform.ResourceChange, priceList *pricing.PriceList, region string, usage *UsageEstimates) (*Cost, error) {
 	costChange := &Cost{Value: 0, Unit: "monthly"} // Default to monthly for aggregation
 	actions := rc.Change.Actions
 	isCreate := len(actions) == 1 && actions[0] == "create"
@@ -51,7 +51,7 @@ func estimateResourceChange(rc *terraform.ResourceChange, priceList *pricing.Pri
 	isUpdate := (len(actions) == 1 && actions[0] == "update") || (len(actions) == 2 && actions[0] == "delete" && actions[1] == "create")
 
 	if isCreate || isUpdate {
-		cost, err := getResourceCost(rc, rc.After, priceList, region)
+		cost, err := getResourceCost(rc, rc.After, priceList, region, usage)
 		if err != nil {
 			return nil, err
 		}
@@ -63,7 +63,7 @@ func estimateResourceChange(rc *terraform.ResourceChange, priceList *pricing.Pri
 	}
 
 	if isDelete || isUpdate {
-		cost, err := getResourceCost(rc, rc.Before, priceList, region)
+		cost, err := getResourceCost(rc, rc.Before, priceList, region, usage)
 		if err != nil {
 			return nil, err
 		}
@@ -77,7 +77,7 @@ func estimateResourceChange(rc *terraform.ResourceChange, priceList *pricing.Pri
 	return costChange, nil
 }
 
-func getResourceCost(rc *terraform.ResourceChange, attributes map[string]interface{}, priceList *pricing.PriceList, region string) (*Cost, error) {
+func getResourceCost(rc *terraform.ResourceChange, attributes map[string]interface{}, priceList *pricing.PriceList, region string, usage *UsageEstimates) (*Cost, error) {
 	if priceList == nil {
 		return nil, fmt.Errorf("pricing data is nil")
 	}
@@ -99,21 +99,50 @@ func getResourceCost(rc *terraform.ResourceChange, attributes map[string]interfa
 		// S3 pricing is per GB/month. For MVP, we use a flat $1.00/month baseline.
 		return &Cost{Value: 1.0, Unit: "monthly"}, nil
 	case "aws_nat_gateway":
-		price, err := costForNATGateway(attributes, priceList, region)
+		price, err := costForNATGateway(attributes, priceList, region, usage)
 		return &Cost{Value: price, Unit: "hourly"}, err
 	default:
 		return nil, fmt.Errorf("unsupported resource type: %s", rc.Type)
 	}
 }
 
-func costForNATGateway(attributes map[string]interface{}, priceList *pricing.PriceList, region string) (float64, error) {
+func costForNATGateway(attributes map[string]interface{}, priceList *pricing.PriceList, region string, usage *UsageEstimates) (float64, error) {
+	var hourlyPrice, dataProcessingPrice float64
+	var err error
+
 	for sku, product := range priceList.Products {
 		attr := product.Attributes
-		if attr.ServiceCode == "AmazonVPC" && attr.Group == "NAT Gateway" && attr.Location == region {
-			return getPriceFromTerms(sku, priceList)
+		if attr.ServiceCode != "AmazonVPC" || attr.Location != region {
+			continue
+		}
+
+		if attr.Group == "NAT Gateway" {
+			hourlyPrice, err = getPriceFromTerms(sku, priceList)
+			if err != nil {
+				return 0, fmt.Errorf("could not get hourly price for NAT Gateway: %w", err)
+			}
+		}
+
+		if strings.Contains(attr.UsageType, "NatGateway-Bytes") {
+			dataProcessingPrice, err = getPriceFromTerms(sku, priceList)
+			if err != nil {
+				return 0, fmt.Errorf("could not get data processing price for NAT Gateway: %w", err)
+			}
 		}
 	}
-	return 0, fmt.Errorf("could not find pricing for NAT Gateway")
+
+	if hourlyPrice == 0 {
+		return 0, fmt.Errorf("could not find hourly pricing for NAT Gateway")
+	}
+
+	totalHourlyCost := hourlyPrice
+	if dataProcessingPrice > 0 && usage != nil {
+		// Convert monthly GB processed to hourly GB processed
+		hourlyGBProcessed := float64(usage.NATGatewayGBProcessed) / 730
+		totalHourlyCost += hourlyGBProcessed * dataProcessingPrice
+	}
+
+	return totalHourlyCost, nil
 }
 
 // ... (costForEC2, costForRDS, etc. now return float64, error)

@@ -1,5 +1,17 @@
 basePath: /
 definitions:
+  estimator.EstimateRequest:
+    properties:
+      plan:
+        $ref: '#/definitions/terraform.Plan'
+      usage_estimates:
+        $ref: '#/definitions/estimator.UsageEstimates'
+    type: object
+  estimator.UsageEstimates:
+    properties:
+      nat_gateway_gb_processed:
+        type: integer
+    type: object
   terraform.Change:
     properties:
       actions:
@@ -58,12 +70,17 @@ paths:
       description: Parses a Terraform plan, estimates the cost, and returns the estimated
         monthly cost.
       parameters:
-      - description: Terraform Plan
+      - description: Request body
         in: body
-        name: plan
+        name: body
         required: true
         schema:
-          $ref: '#/definitions/terraform.Plan'
+          $ref: '#/definitions/estimator.EstimateRequest'
+      - default: us-east-1
+        description: AWS Region
+        in: query
+        name: region
+        type: string
       produces:
       - application/json
       responses:
@@ -75,7 +92,7 @@ paths:
               type: number
             type: object
         "400":
-          description: Failed to parse Terraform plan
+          description: Failed to parse request body or Terraform plan
           schema:
             type: string
         "500":

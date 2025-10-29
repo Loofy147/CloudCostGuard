@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"gopkg.in/yaml.v2"
+	"cloudcostguard/backend/estimator"
 )
 
 // Config represents the structure of the .cloudcostguard.yml file.
@@ -16,6 +17,8 @@ type Config struct {
 	} `yaml:"github"`
 	// Region is the AWS region to use for pricing.
 	Region string `yaml:"region"`
+	// UsageEstimates contains user-provided estimates for usage-based resources.
+	UsageEstimates estimator.UsageEstimates `yaml:"usage_estimates"`
 }
 
 // LoadConfig loads the configuration from the specified path.

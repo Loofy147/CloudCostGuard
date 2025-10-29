@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
 
+	"cloudcostguard/backend/estimator"
 	"cloudcostguard/internal/config"
 	"cloudcostguard/internal/github"
 	"github.com/spf13/cobra"
@@ -35,6 +37,7 @@ var analyzeCmd = &cobra.Command{
 		repo := ""
 		prNumberStr := ""
 		resolvedRegion := "us-east-1" // Default region
+		usageEstimates := estimator.UsageEstimates{}
 
 		cfg, err := config.LoadConfig(".cloudcostguard.yml")
 		if err == nil {
@@ -43,6 +46,7 @@ var analyzeCmd = &cobra.Command{
 			if cfg.Region != "" {
 				resolvedRegion = cfg.Region
 			}
+			usageEstimates = cfg.UsageEstimates
 		} else if !os.IsNotExist(err) {
 			return fmt.Errorf("could not load config file: %w", err)
 		}
@@ -67,11 +71,10 @@ var analyzeCmd = &cobra.Command{
 		}
 
 		// --- Execution ---
-		planFile, err := os.Open(planPath)
+		planBytes, err := os.ReadFile(planPath)
 		if err != nil {
-			return fmt.Errorf("could not open plan file: %w", err)
+			return fmt.Errorf("could not read plan file: %w", err)
 		}
-		defer planFile.Close()
 
 		// 1. Call the backend API
 		backendURL := os.Getenv("CCG_BACKEND_URL")
@@ -79,8 +82,16 @@ var analyzeCmd = &cobra.Command{
 			backendURL = "http://localhost:8080"
 		}
 
+		requestBody, err := json.Marshal(map[string]interface{}{
+			"plan":           json.RawMessage(planBytes),
+			"usage_estimates": usageEstimates,
+		})
+		if err != nil {
+			return fmt.Errorf("could not marshal request body: %w", err)
+		}
+
 		url := fmt.Sprintf("%s/estimate?region=%s", backendURL, resolvedRegion)
-		req, err := http.NewRequest("POST", url, planFile)
+		req, err := http.NewRequest("POST", url, bytes.NewBuffer(requestBody))
 		if err != nil {
 			return fmt.Errorf("failed to create request to backend: %w", err)
 		}
