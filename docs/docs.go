@@ -36,13 +36,20 @@ const docTemplate = `{
                 "summary": "Estimate Terraform plan cost",
                 "parameters": [
                     {
-                        "description": "Terraform Plan",
-                        "name": "plan",
+                        "description": "Request body",
+                        "name": "body",
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/terraform.Plan"
+                            "$ref": "#/definitions/estimator.EstimateRequest"
                         }
+                    },
+                    {
+                        "type": "string",
+                        "default": "us-east-1",
+                        "description": "AWS Region",
+                        "name": "region",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -57,7 +64,7 @@ const docTemplate = `{
                         }
                     },
                     "400": {
-                        "description": "Failed to parse Terraform plan",
+                        "description": "Failed to parse request body or Terraform plan",
                         "schema": {
                             "type": "string"
                         }
@@ -105,6 +112,25 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "estimator.EstimateRequest": {
+            "type": "object",
+            "properties": {
+                "plan": {
+                    "$ref": "#/definitions/terraform.Plan"
+                },
+                "usage_estimates": {
+                    "$ref": "#/definitions/estimator.UsageEstimates"
+                }
+            }
+        },
+        "estimator.UsageEstimates": {
+            "type": "object",
+            "properties": {
+                "nat_gateway_gb_processed": {
+                    "type": "integer"
+                }
+            }
+        },
         "terraform.Change": {
             "type": "object",
             "properties": {

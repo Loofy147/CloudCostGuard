@@ -51,6 +51,25 @@ func createMockPriceList() *pricing.PriceList {
 		},
 	}
 
+	// Mock NAT Gateway Data Processing price: $0.045/GB
+	priceList.Products["nat-gateway-dp-sku"] = pricing.Product{
+		SKU: "nat-gateway-dp-sku",
+		Attributes: pricing.ProductAttributes{
+			ServiceCode: "AmazonVPC",
+			Location:    "US East (N. Virginia)",
+			UsageType:   "NatGateway-Bytes",
+		},
+	}
+	pd6 := pricing.PriceDimension{}
+	pd6.PricePerUnit.USD = "0.045"
+	priceList.Terms.OnDemand["nat-gateway-dp-sku"] = map[string]pricing.Term{
+		"term1": {
+			PriceDimensions: map[string]pricing.PriceDimension{
+				"dim1": pd6,
+			},
+		},
+	}
+
 	// Mock EC2 t2.small price: $20/hr
 	priceList.Products["ec2-t2-small-sku"] = pricing.Product{
 		SKU: "ec2-t2-small-sku",
@@ -134,7 +153,7 @@ func TestEstimate(t *testing.T) {
 
 		// Expected cost: $10/hr * 730 hrs/month = $7300
 		expectedCost := 10.0 * 730
-		cost, err := Estimate(plan, mockPrices, usEastRegion)
+		cost, err := Estimate(plan, mockPrices, usEastRegion, &UsageEstimates{})
 		assert.NoError(t, err)
 		assert.InDelta(t, expectedCost, cost, 0.01)
 	})
@@ -153,7 +172,7 @@ func TestEstimate(t *testing.T) {
 
 		// Expected cost: -$10/hr * 730 hrs/month = -$7300
 		expectedCost := -10.0 * 730
-		cost, err := Estimate(plan, mockPrices, usEastRegion)
+		cost, err := Estimate(plan, mockPrices, usEastRegion, &UsageEstimates{})
 		assert.NoError(t, err)
 		assert.InDelta(t, expectedCost, cost, 0.01)
 	})
@@ -173,7 +192,7 @@ func TestEstimate(t *testing.T) {
 
 		// Expected cost: ($20/hr - $10/hr) * 730 hrs/month = $7300
 		expectedCost := (20.0 - 10.0) * 730
-		cost, err := Estimate(plan, mockPrices, usEastRegion)
+		cost, err := Estimate(plan, mockPrices, usEastRegion, &UsageEstimates{})
 		assert.NoError(t, err)
 		assert.InDelta(t, expectedCost, cost, 0.01)
 	})
@@ -198,7 +217,7 @@ func TestEstimate(t *testing.T) {
 
 		// Expected cost: ($10/hr * 730) + ($0.10/GB * 100 GB) = 7300 + 10 = $7310
 		expectedCost := (10.0 * 730) + (0.10 * 100)
-		cost, err := Estimate(plan, mockPrices, usEastRegion)
+		cost, err := Estimate(plan, mockPrices, usEastRegion, &UsageEstimates{})
 		assert.NoError(t, err)
 		assert.InDelta(t, expectedCost, cost, 0.01)
 	})
@@ -222,7 +241,7 @@ func TestEstimate(t *testing.T) {
 		}
 
 		expectedCost := 10.0 * 730
-		cost, err := Estimate(plan, mockPrices, usEastRegion)
+		cost, err := Estimate(plan, mockPrices, usEastRegion, &UsageEstimates{})
 		assert.NoError(t, err)
 		assert.InDelta(t, expectedCost, cost, 0.01)
 	})
@@ -241,7 +260,30 @@ func TestEstimate(t *testing.T) {
 
 		// Expected cost: $0.045/hr * 730 hrs/month = $32.85
 		expectedCost := 0.045 * 730
-		cost, err := Estimate(plan, mockPrices, usEastRegion)
+		cost, err := Estimate(plan, mockPrices, usEastRegion, &UsageEstimates{})
+		assert.NoError(t, err)
+		assert.InDelta(t, expectedCost, cost, 0.01)
+	})
+
+	t.Run("estimates cost for a new NAT Gateway with usage", func(t *testing.T) {
+		plan := &terraform.Plan{
+			ResourceChanges: []*terraform.ResourceChange{
+				{
+					Address: "aws_nat_gateway.gw",
+					Type:    "aws_nat_gateway",
+					Change:  terraform.Change{Actions: []string{"create"}},
+					After:   map[string]interface{}{},
+				},
+			},
+		}
+
+		usage := &UsageEstimates{NATGatewayGBProcessed: 1000} // 1000 GB/month
+
+		// Expected fixed cost: $0.045/hr * 730 hrs/month = $32.85
+		// Expected usage cost: 1000 GB * $0.045/GB = $45
+		// Total: $77.85
+		expectedCost := (0.045 * 730) + (1000 * 0.045)
+		cost, err := Estimate(plan, mockPrices, usEastRegion, usage)
 		assert.NoError(t, err)
 		assert.InDelta(t, expectedCost, cost, 0.01)
 	})
@@ -260,7 +302,7 @@ func TestEstimate(t *testing.T) {
 
 		// Expected cost for eu-west-1: $12/hr * 730 hrs/month = $8760
 		expectedCost := 12.0 * 730
-		cost, err := Estimate(plan, mockPrices, euWestRegion)
+		cost, err := Estimate(plan, mockPrices, euWestRegion, &UsageEstimates{})
 		assert.NoError(t, err)
 		assert.InDelta(t, expectedCost, cost, 0.01)
 	})
@@ -278,7 +320,7 @@ func TestEstimate(t *testing.T) {
 		}
 
 		// We have no mock data for ap-southeast-2, so the cost should be 0
-		cost, err := Estimate(plan, mockPrices, "ap-southeast-2")
+		cost, err := Estimate(plan, mockPrices, "ap-southeast-2", &UsageEstimates{})
 		assert.NoError(t, err)
 		assert.Equal(t, 0.0, cost)
 	})

@@ -4,7 +4,6 @@ import (
 	"cloudcostguard/backend/database"
 	"cloudcostguard/backend/estimator"
 	"cloudcostguard/backend/pricing"
-	"cloudcostguard/backend/terraform"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -96,10 +95,10 @@ func statusHandler(w http.ResponseWriter, r *http.Request) {
 // @Description Parses a Terraform plan, estimates the cost, and returns the estimated monthly cost.
 // @Accept  json
 // @Produce  json
-// @Param   plan body terraform.Plan true "Terraform Plan"
+// @Param   body body estimator.EstimateRequest true "Request body"
 // @Param   region query string false "AWS Region" default(us-east-1)
 // @Success 200 {object} map[string]float64
-// @Failure 400 {string} string "Failed to parse Terraform plan"
+// @Failure 400 {string} string "Failed to parse request body or Terraform plan"
 // @Failure 500 {string} string "Failed to estimate cost"
 // @Failure 503 {string} string "Pricing data is not yet available"
 // @Router /estimate [post]
@@ -114,11 +113,13 @@ func estimateHandler(w http.ResponseWriter, r *http.Request) {
 		region = "us-east-1"
 	}
 
-	plan, err := terraform.ParsePlan(r.Body)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to parse Terraform plan: %v", err), http.StatusBadRequest)
+	var requestBody estimator.EstimateRequest
+	if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
+		http.Error(w, "Failed to parse request body", http.StatusBadRequest)
 		return
 	}
+
+	plan := requestBody.Plan
 
 	cacheMutex.RLock()
 	currentPriceList := pricingCache
@@ -129,7 +130,7 @@ func estimateHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cost, err := estimator.Estimate(plan, currentPriceList, region)
+	cost, err := estimator.Estimate(plan, currentPriceList, region, &requestBody.UsageEstimates)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to estimate cost: %v", err), http.StatusInternalServerError)
 		return
