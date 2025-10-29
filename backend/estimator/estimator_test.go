@@ -153,9 +153,12 @@ func TestEstimate(t *testing.T) {
 
 		// Expected cost: $10/hr * 730 hrs/month = $7300
 		expectedCost := 10.0 * 730
-		cost, err := Estimate(plan, mockPrices, usEastRegion, &UsageEstimates{})
+		result, err := Estimate(plan, mockPrices, usEastRegion, &UsageEstimates{})
 		assert.NoError(t, err)
-		assert.InDelta(t, expectedCost, cost, 0.01)
+		assert.InDelta(t, expectedCost, result.TotalMonthlyCost, 0.01)
+		assert.Len(t, result.Resources, 1)
+		assert.Equal(t, "aws_instance.web", result.Resources[0].Address)
+		assert.InDelta(t, expectedCost, result.Resources[0].MonthlyCost, 0.01)
 	})
 
 	t.Run("estimates cost for deleted EC2 instance", func(t *testing.T) {
@@ -172,9 +175,10 @@ func TestEstimate(t *testing.T) {
 
 		// Expected cost: -$10/hr * 730 hrs/month = -$7300
 		expectedCost := -10.0 * 730
-		cost, err := Estimate(plan, mockPrices, usEastRegion, &UsageEstimates{})
+		result, err := Estimate(plan, mockPrices, usEastRegion, &UsageEstimates{})
 		assert.NoError(t, err)
-		assert.InDelta(t, expectedCost, cost, 0.01)
+		assert.InDelta(t, expectedCost, result.TotalMonthlyCost, 0.01)
+		assert.Len(t, result.Resources, 1)
 	})
 
 	t.Run("estimates cost for updated EC2 instance", func(t *testing.T) {
@@ -192,9 +196,10 @@ func TestEstimate(t *testing.T) {
 
 		// Expected cost: ($20/hr - $10/hr) * 730 hrs/month = $7300
 		expectedCost := (20.0 - 10.0) * 730
-		cost, err := Estimate(plan, mockPrices, usEastRegion, &UsageEstimates{})
+		result, err := Estimate(plan, mockPrices, usEastRegion, &UsageEstimates{})
 		assert.NoError(t, err)
-		assert.InDelta(t, expectedCost, cost, 0.01)
+		assert.InDelta(t, expectedCost, result.TotalMonthlyCost, 0.01)
+		assert.Len(t, result.Resources, 1)
 	})
 
 	t.Run("estimates cost for multiple resources", func(t *testing.T) {
@@ -217,9 +222,10 @@ func TestEstimate(t *testing.T) {
 
 		// Expected cost: ($10/hr * 730) + ($0.10/GB * 100 GB) = 7300 + 10 = $7310
 		expectedCost := (10.0 * 730) + (0.10 * 100)
-		cost, err := Estimate(plan, mockPrices, usEastRegion, &UsageEstimates{})
+		result, err := Estimate(plan, mockPrices, usEastRegion, &UsageEstimates{})
 		assert.NoError(t, err)
-		assert.InDelta(t, expectedCost, cost, 0.01)
+		assert.InDelta(t, expectedCost, result.TotalMonthlyCost, 0.01)
+		assert.Len(t, result.Resources, 2)
 	})
 
 	t.Run("skips unsupported resources", func(t *testing.T) {
@@ -241,9 +247,10 @@ func TestEstimate(t *testing.T) {
 		}
 
 		expectedCost := 10.0 * 730
-		cost, err := Estimate(plan, mockPrices, usEastRegion, &UsageEstimates{})
+		result, err := Estimate(plan, mockPrices, usEastRegion, &UsageEstimates{})
 		assert.NoError(t, err)
-		assert.InDelta(t, expectedCost, cost, 0.01)
+		assert.InDelta(t, expectedCost, result.TotalMonthlyCost, 0.01)
+		assert.Len(t, result.Resources, 1)
 	})
 
 	t.Run("estimates cost for a new NAT Gateway", func(t *testing.T) {
@@ -260,9 +267,10 @@ func TestEstimate(t *testing.T) {
 
 		// Expected cost: $0.045/hr * 730 hrs/month = $32.85
 		expectedCost := 0.045 * 730
-		cost, err := Estimate(plan, mockPrices, usEastRegion, &UsageEstimates{})
+		result, err := Estimate(plan, mockPrices, usEastRegion, &UsageEstimates{})
 		assert.NoError(t, err)
-		assert.InDelta(t, expectedCost, cost, 0.01)
+		assert.InDelta(t, expectedCost, result.TotalMonthlyCost, 0.01)
+		assert.Len(t, result.Resources, 1)
 	})
 
 	t.Run("estimates cost for a new NAT Gateway with usage", func(t *testing.T) {
@@ -283,9 +291,10 @@ func TestEstimate(t *testing.T) {
 		// Expected usage cost: 1000 GB * $0.045/GB = $45
 		// Total: $77.85
 		expectedCost := (0.045 * 730) + (1000 * 0.045)
-		cost, err := Estimate(plan, mockPrices, usEastRegion, usage)
+		result, err := Estimate(plan, mockPrices, usEastRegion, usage)
 		assert.NoError(t, err)
-		assert.InDelta(t, expectedCost, cost, 0.01)
+		assert.InDelta(t, expectedCost, result.TotalMonthlyCost, 0.01)
+		assert.Len(t, result.Resources, 1)
 	})
 
 	t.Run("uses the correct region for pricing", func(t *testing.T) {
@@ -302,9 +311,10 @@ func TestEstimate(t *testing.T) {
 
 		// Expected cost for eu-west-1: $12/hr * 730 hrs/month = $8760
 		expectedCost := 12.0 * 730
-		cost, err := Estimate(plan, mockPrices, euWestRegion, &UsageEstimates{})
+		result, err := Estimate(plan, mockPrices, euWestRegion, &UsageEstimates{})
 		assert.NoError(t, err)
-		assert.InDelta(t, expectedCost, cost, 0.01)
+		assert.InDelta(t, expectedCost, result.TotalMonthlyCost, 0.01)
+		assert.Len(t, result.Resources, 1)
 	})
 
 	t.Run("returns zero cost for resources in a region with no pricing data", func(t *testing.T) {
@@ -320,8 +330,9 @@ func TestEstimate(t *testing.T) {
 		}
 
 		// We have no mock data for ap-southeast-2, so the cost should be 0
-		cost, err := Estimate(plan, mockPrices, "ap-southeast-2", &UsageEstimates{})
+		result, err := Estimate(plan, mockPrices, "ap-southeast-2", &UsageEstimates{})
 		assert.NoError(t, err)
-		assert.Equal(t, 0.0, cost)
+		assert.Equal(t, 0.0, result.TotalMonthlyCost)
+		assert.Len(t, result.Resources, 0)
 	})
 }

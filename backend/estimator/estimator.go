@@ -8,10 +8,11 @@ import (
 	"cloudcostguard/backend/terraform"
 )
 
-// Cost represents a monetary cost with a value and a unit.
+// Cost represents a monetary cost with a value, a unit and a breakdown.
 type Cost struct {
-	Value float64
-	Unit  string // "hourly" or "monthly"
+	Value    float64
+	Unit     string // "hourly" or "monthly"
+	Breakdown string
 }
 
 // Estimate calculates the estimated monthly cost impact of a Terraform plan.
@@ -23,10 +24,14 @@ type Cost struct {
 //   priceList: The list of AWS prices to use for the estimation.
 //
 // Returns:
-//   The total estimated monthly cost impact, or an error if the estimation fails.
-func Estimate(plan *terraform.Plan, priceList *pricing.PriceList, region string, usage *UsageEstimates) (float64, error) {
+//   A detailed breakdown of the estimated monthly cost impact.
+func Estimate(plan *terraform.Plan, priceList *pricing.PriceList, region string, usage *UsageEstimates) (*EstimationResponse, error) {
 	location := toLocation(region)
-	var totalMonthlyCost float64
+	response := &EstimationResponse{
+		Currency:  "USD",
+		Resources: []ResourceCost{},
+	}
+
 	for _, rc := range plan.ResourceChanges {
 		cost, err := estimateResourceChange(rc, priceList, location, usage)
 		if err != nil {
@@ -34,13 +39,25 @@ func Estimate(plan *terraform.Plan, priceList *pricing.PriceList, region string,
 			continue
 		}
 
+		monthlyCost := cost.Value
 		if cost.Unit == "hourly" {
-			totalMonthlyCost += cost.Value * 730
-		} else {
-			totalMonthlyCost += cost.Value
+			monthlyCost *= 730
+		}
+
+		if monthlyCost != 0 {
+			response.Resources = append(response.Resources, ResourceCost{
+				Address:      rc.Address,
+				MonthlyCost:  monthlyCost,
+				CostBreakdown: cost.Breakdown,
+			})
 		}
 	}
-	return totalMonthlyCost, nil
+
+	for _, resource := range response.Resources {
+		response.TotalMonthlyCost += resource.MonthlyCost
+	}
+
+	return response, nil
 }
 
 func estimateResourceChange(rc *terraform.ResourceChange, priceList *pricing.PriceList, region string, usage *UsageEstimates) (*Cost, error) {
@@ -84,8 +101,7 @@ func getResourceCost(rc *terraform.ResourceChange, attributes map[string]interfa
 
 	switch rc.Type {
 	case "aws_instance":
-		price, err := costForEC2(attributes, priceList, region)
-		return &Cost{Value: price, Unit: "hourly"}, err
+		return costForEC2(attributes, priceList, region)
 	case "aws_db_instance":
 		price, err := costForRDS(attributes, priceList, region)
 		return &Cost{Value: price, Unit: "hourly"}, err
@@ -146,17 +162,27 @@ func costForNATGateway(attributes map[string]interface{}, priceList *pricing.Pri
 }
 
 // ... (costForEC2, costForRDS, etc. now return float64, error)
-func costForEC2(attributes map[string]interface{}, priceList *pricing.PriceList, region string) (float64, error) {
+func costForEC2(attributes map[string]interface{}, priceList *pricing.PriceList, region string) (*Cost, error) {
 	instanceType, _ := attributes["instance_type"].(string)
-	if instanceType == "" { return 0, fmt.Errorf("missing instance_type") }
+	if instanceType == "" {
+		return nil, fmt.Errorf("missing instance_type")
+	}
 
 	for sku, product := range priceList.Products {
 		attr := product.Attributes
 		if attr.ServiceCode == "AmazonEC2" && attr.InstanceType == instanceType && attr.Location == region && attr.OperatingSystem == "Linux" && strings.HasPrefix(attr.UsageType, "BoxUsage") {
-			return getPriceFromTerms(sku, priceList)
+			price, err := getPriceFromTerms(sku, priceList)
+			if err != nil {
+				return nil, err
+			}
+			return &Cost{
+				Value:    price,
+				Unit:     "hourly",
+				Breakdown: fmt.Sprintf("%s @ $%.4f/hr", instanceType, price),
+			}, nil
 		}
 	}
-	return 0, fmt.Errorf("could not find pricing for EC2 instance type: %s", instanceType)
+	return nil, fmt.Errorf("could not find pricing for EC2 instance type: %s", instanceType)
 }
 
 func costForRDS(attributes map[string]interface{}, priceList *pricing.PriceList, region string) (float64, error) {
