@@ -1,0 +1,189 @@
+package estimator
+
+import (
+	"cloudcostguard/backend/pricing"
+	"cloudcostguard/backend/terraform"
+	"github.com/stretchr/testify/assert"
+	"testing"
+)
+
+func createMockPriceList() *pricing.PriceList {
+	priceList := pricing.NewPriceList()
+	priceList.Terms.OnDemand = make(map[string]map[string]pricing.Term)
+
+	// Mock EC2 t2.micro price: $10/hr
+	priceList.Products["ec2-t2-micro-sku"] = pricing.Product{
+		SKU: "ec2-t2-micro-sku",
+		Attributes: pricing.ProductAttributes{
+			ServiceCode:     "AmazonEC2",
+			InstanceType:    "t2.micro",
+			Location:        "US East (N. Virginia)",
+			OperatingSystem: "Linux",
+			UsageType:       "BoxUsage:t2.micro",
+		},
+	}
+	pd1 := pricing.PriceDimension{}
+	pd1.PricePerUnit.USD = "10.0"
+	priceList.Terms.OnDemand["ec2-t2-micro-sku"] = map[string]pricing.Term{
+		"term1": {
+			PriceDimensions: map[string]pricing.PriceDimension{
+				"dim1": pd1,
+			},
+		},
+	}
+
+	// Mock EC2 t2.small price: $20/hr
+	priceList.Products["ec2-t2-small-sku"] = pricing.Product{
+		SKU: "ec2-t2-small-sku",
+		Attributes: pricing.ProductAttributes{
+			ServiceCode:     "AmazonEC2",
+			InstanceType:    "t2.small",
+			Location:        "US East (N. Virginia)",
+			OperatingSystem: "Linux",
+			UsageType:       "BoxUsage:t2.small",
+		},
+	}
+	pd2 := pricing.PriceDimension{}
+	pd2.PricePerUnit.USD = "20.0"
+	priceList.Terms.OnDemand["ec2-t2-small-sku"] = map[string]pricing.Term{
+		"term1": {
+			PriceDimensions: map[string]pricing.PriceDimension{
+				"dim1": pd2,
+			},
+		},
+	}
+
+	// Mock EBS gp2 price: $0.10/GB-month
+	priceList.Products["ebs-gp2-sku"] = pricing.Product{
+		SKU: "ebs-gp2-sku",
+		Attributes: pricing.ProductAttributes{
+			ServiceCode:   "AmazonEC2",
+			VolumeAPIName: "gp2",
+			Location:      "US East (N. Virginia)",
+		},
+	}
+	pd3 := pricing.PriceDimension{}
+	pd3.PricePerUnit.USD = "0.10"
+	priceList.Terms.OnDemand["ebs-gp2-sku"] = map[string]pricing.Term{
+		"term1": {
+			PriceDimensions: map[string]pricing.PriceDimension{
+				"dim1": pd3,
+			},
+		},
+	}
+
+	return priceList
+}
+
+func TestEstimate(t *testing.T) {
+	mockPrices := createMockPriceList()
+
+	t.Run("estimates cost for new EC2 instance", func(t *testing.T) {
+		plan := &terraform.Plan{
+			ResourceChanges: []*terraform.ResourceChange{
+				{
+					Address: "aws_instance.web",
+					Type:    "aws_instance",
+					Change:  terraform.Change{Actions: []string{"create"}},
+					After:   map[string]interface{}{"instance_type": "t2.micro"},
+				},
+			},
+		}
+
+		// Expected cost: $10/hr * 730 hrs/month = $7300
+		expectedCost := 10.0 * 730
+		cost, err := Estimate(plan, mockPrices)
+		assert.NoError(t, err)
+		assert.InDelta(t, expectedCost, cost, 0.01)
+	})
+
+	t.Run("estimates cost for deleted EC2 instance", func(t *testing.T) {
+		plan := &terraform.Plan{
+			ResourceChanges: []*terraform.ResourceChange{
+				{
+					Address: "aws_instance.web",
+					Type:    "aws_instance",
+					Change:  terraform.Change{Actions: []string{"delete"}},
+					Before:  map[string]interface{}{"instance_type": "t2.micro"},
+				},
+			},
+		}
+
+		// Expected cost: -$10/hr * 730 hrs/month = -$7300
+		expectedCost := -10.0 * 730
+		cost, err := Estimate(plan, mockPrices)
+		assert.NoError(t, err)
+		assert.InDelta(t, expectedCost, cost, 0.01)
+	})
+
+	t.Run("estimates cost for updated EC2 instance", func(t *testing.T) {
+		plan := &terraform.Plan{
+			ResourceChanges: []*terraform.ResourceChange{
+				{
+					Address: "aws_instance.web",
+					Type:    "aws_instance",
+					Change:  terraform.Change{Actions: []string{"update"}},
+					Before:  map[string]interface{}{"instance_type": "t2.micro"},
+					After:   map[string]interface{}{"instance_type": "t2.small"},
+				},
+			},
+		}
+
+		// Expected cost: ($20/hr - $10/hr) * 730 hrs/month = $7300
+		expectedCost := (20.0 - 10.0) * 730
+		cost, err := Estimate(plan, mockPrices)
+		assert.NoError(t, err)
+		assert.InDelta(t, expectedCost, cost, 0.01)
+	})
+
+	t.Run("estimates cost for multiple resources", func(t *testing.T) {
+		plan := &terraform.Plan{
+			ResourceChanges: []*terraform.ResourceChange{
+				{
+					Address: "aws_instance.web",
+					Type:    "aws_instance",
+					Change:  terraform.Change{Actions: []string{"create"}},
+					After:   map[string]interface{}{"instance_type": "t2.micro"},
+				},
+				{
+					Address: "aws_ebs_volume.data",
+					Type:    "aws_ebs_volume",
+					Change:  terraform.Change{Actions: []string{"create"}},
+					After:   map[string]interface{}{"type": "gp2", "size": float64(100)},
+				},
+			},
+		}
+
+		// Expected cost: ($10/hr * 730) + ($0.10/GB * 100 GB) = 7300 + 10 = $7310
+		expectedCost := (10.0 * 730) + (0.10 * 100)
+		cost, err := Estimate(plan, mockPrices)
+		assert.NoError(t, err)
+		assert.InDelta(t, expectedCost, cost, 0.01)
+	})
+
+
+	t.Run("skips unsupported resources", func(t *testing.T) {
+		plan := &terraform.Plan{
+			ResourceChanges: []*terraform.ResourceChange{
+				{
+					Address: "null_resource.foo",
+					Type:    "null_resource",
+					Change:  terraform.Change{Actions: []string{"create"}},
+					After:   map[string]interface{}{},
+				},
+				{
+					Address: "aws_instance.web",
+					Type:    "aws_instance",
+					Change:  terraform.Change{Actions: []string{"create"}},
+					After:   map[string]interface{}{"instance_type": "t2.micro"},
+				},
+			},
+		}
+
+		expectedCost := 10.0 * 730
+		cost, err := Estimate(plan, mockPrices)
+		assert.NoError(t, err)
+		assert.InDelta(t, expectedCost, cost, 0.01)
+	})
+
+}

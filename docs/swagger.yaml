@@ -87,4 +87,22 @@ paths:
           schema:
             type: string
       summary: Estimate Terraform plan cost
+  /status:
+    get:
+      description: Returns the timestamp of the oldest pricing data record in the
+        database.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Failed to query database
+          schema:
+            type: string
+      summary: Get pricing data staleness
 swagger: "2.0"
