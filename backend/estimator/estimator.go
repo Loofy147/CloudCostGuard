@@ -8,12 +8,22 @@ import (
 	"cloudcostguard/backend/terraform"
 )
 
+// Cost represents a monetary cost with a value and a unit.
 type Cost struct {
 	Value float64
 	Unit  string // "hourly" or "monthly"
 }
 
 // Estimate calculates the estimated monthly cost impact of a Terraform plan.
+// It iterates through the resource changes in the plan, estimates the cost of each change,
+// and aggregates them into a total monthly cost.
+//
+// Parameters:
+//   plan: The Terraform plan to estimate the cost of.
+//   priceList: The list of AWS prices to use for the estimation.
+//
+// Returns:
+//   The total estimated monthly cost impact, or an error if the estimation fails.
 func Estimate(plan *terraform.Plan, priceList *pricing.PriceList) (float64, error) {
 	var totalMonthlyCost float64
 	for _, rc := range plan.ResourceChanges {

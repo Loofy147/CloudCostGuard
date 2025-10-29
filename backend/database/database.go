@@ -9,8 +9,13 @@ import (
 	_ "github.com/lib/pq"
 )
 
+// DB is the global database connection pool.
 var DB *sql.DB
 
+// InitDB initializes the connection to the PostgreSQL database.
+// It uses the DATABASE_URL environment variable for the connection string.
+// If DATABASE_URL is not set, it falls back to a default local development connection string.
+// It also creates the aws_prices table if it doesn't already exist.
 func InitDB() {
 	connStr := os.Getenv("DATABASE_URL")
 	if connStr == "" {

@@ -18,6 +18,9 @@ var (
 	cacheMutex   sync.RWMutex
 )
 
+// main is the entry point for the CloudCostGuard backend server.
+// It initializes the database connection, starts the pricing service,
+// populates the pricing cache, and starts the HTTP server.
 func main() {
 	database.InitDB()
 	startPricingService() // This will populate the DB in the background
@@ -47,6 +50,9 @@ func main() {
 	}
 }
 
+// estimateHandler handles HTTP requests to the /estimate endpoint.
+// It parses a Terraform plan from the request body, estimates the cost,
+// and returns the estimated monthly cost in a JSON response.
 func estimateHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Only POST method is allowed", http.StatusMethodNotAllowed)

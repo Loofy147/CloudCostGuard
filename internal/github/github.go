@@ -13,6 +13,15 @@ type commentBody struct {
 }
 
 // PostComment posts a comment to a GitHub pull request.
+//
+// Parameters:
+//   repo: The GitHub repository in the format "owner/repo".
+//   prNumber: The pull request number.
+//   token: The GitHub API token.
+//   comment: The comment to post.
+//
+// Returns:
+//   An error if the comment could not be posted, nil otherwise.
 func PostComment(repo, prNumber, token, comment string) error {
 	apiURL := os.Getenv("GITHUB_API_URL")
 	if apiURL == "" {
