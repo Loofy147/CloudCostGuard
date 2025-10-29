@@ -54,10 +54,10 @@ func storePriceList(priceList *pricing.PriceList) {
 		}
 
 		_, err = database.DB.Exec(`
-			INSERT INTO aws_prices (sku, product_json, terms_json)
-			VALUES ($1, $2, $3)
+			INSERT INTO aws_prices (sku, product_json, terms_json, last_updated)
+			VALUES ($1, $2, $3, NOW())
 			ON CONFLICT (sku) DO UPDATE
-			SET product_json = $2, terms_json = $3;
+			SET product_json = $2, terms_json = $3, last_updated = NOW();
 		`, sku, productJSON, termsJSON)
 
 		if err != nil {

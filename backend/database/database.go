@@ -40,7 +40,8 @@ func createTable() {
 	CREATE TABLE IF NOT EXISTS aws_prices (
 		sku TEXT PRIMARY KEY,
 		product_json JSONB,
-		terms_json JSONB
+		terms_json JSONB,
+		last_updated TIMESTAMPTZ NOT NULL
 	);`
 
 	_, err := DB.Exec(createTableSQL)

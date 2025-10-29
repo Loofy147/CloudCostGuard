@@ -58,10 +58,36 @@ func main() {
 
 	http.HandleFunc("/swagger/", httpSwagger.WrapHandler)
 	http.HandleFunc("/estimate", estimateHandler)
+	http.HandleFunc("/status", statusHandler)
 
 	fmt.Println("Starting CloudCostGuard backend server on :8080...")
 	if err := http.ListenAndServe(":8080", nil); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
+	}
+}
+
+// statusHandler handles HTTP requests to the /status endpoint.
+// @Summary Get pricing data staleness
+// @Description Returns the timestamp of the oldest pricing data record in the database.
+// @Produce  json
+// @Success 200 {object} map[string]string
+// @Failure 500 {string} string "Failed to query database"
+// @Router /status [get]
+func statusHandler(w http.ResponseWriter, r *http.Request) {
+	var oldestTimestamp time.Time
+	err := database.DB.QueryRow("SELECT MIN(last_updated) FROM aws_prices").Scan(&oldestTimestamp)
+	if err != nil {
+		http.Error(w, "Failed to query database", http.StatusInternalServerError)
+		return
+	}
+
+	response := map[string]string{
+		"oldest_pricing_data": oldestTimestamp.Format(time.RFC3339),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
 	}
 }
 
