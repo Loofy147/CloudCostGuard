@@ -97,9 +97,22 @@ func getResourceCost(rc *terraform.ResourceChange, attributes map[string]interfa
 	case "aws_s3_bucket":
 		// S3 pricing is per GB/month. For MVP, we use a flat $1.00/month baseline.
 		return &Cost{Value: 1.0, Unit: "monthly"}, nil
+	case "aws_nat_gateway":
+		price, err := costForNATGateway(attributes, priceList)
+		return &Cost{Value: price, Unit: "hourly"}, err
 	default:
 		return nil, fmt.Errorf("unsupported resource type: %s", rc.Type)
 	}
+}
+
+func costForNATGateway(attributes map[string]interface{}, priceList *pricing.PriceList) (float64, error) {
+	for sku, product := range priceList.Products {
+		attr := product.Attributes
+		if attr.ServiceCode == "AmazonVPC" && attr.Group == "NAT Gateway" && attr.Location == "US East (N. Virginia)" {
+			return getPriceFromTerms(sku, priceList)
+		}
+	}
+	return 0, fmt.Errorf("could not find pricing for NAT Gateway")
 }
 
 // ... (costForEC2, costForRDS, etc. now return float64, error)

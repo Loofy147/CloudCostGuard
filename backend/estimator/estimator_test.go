@@ -32,6 +32,25 @@ func createMockPriceList() *pricing.PriceList {
 		},
 	}
 
+	// Mock NAT Gateway price: $0.045/hr
+	priceList.Products["nat-gateway-sku"] = pricing.Product{
+		SKU: "nat-gateway-sku",
+		Attributes: pricing.ProductAttributes{
+			ServiceCode: "AmazonVPC",
+			Group:       "NAT Gateway",
+			Location:    "US East (N. Virginia)",
+		},
+	}
+	pd4 := pricing.PriceDimension{}
+	pd4.PricePerUnit.USD = "0.045"
+	priceList.Terms.OnDemand["nat-gateway-sku"] = map[string]pricing.Term{
+		"term1": {
+			PriceDimensions: map[string]pricing.PriceDimension{
+				"dim1": pd4,
+			},
+		},
+	}
+
 	// Mock EC2 t2.small price: $20/hr
 	priceList.Products["ec2-t2-small-sku"] = pricing.Product{
 		SKU: "ec2-t2-small-sku",
@@ -186,4 +205,22 @@ func TestEstimate(t *testing.T) {
 		assert.InDelta(t, expectedCost, cost, 0.01)
 	})
 
+	t.Run("estimates cost for a new NAT Gateway", func(t *testing.T) {
+		plan := &terraform.Plan{
+			ResourceChanges: []*terraform.ResourceChange{
+				{
+					Address: "aws_nat_gateway.gw",
+					Type:    "aws_nat_gateway",
+					Change:  terraform.Change{Actions: []string{"create"}},
+					After:   map[string]interface{}{},
+				},
+			},
+		}
+
+		// Expected cost: $0.045/hr * 730 hrs/month = $32.85
+		expectedCost := 0.045 * 730
+		cost, err := Estimate(plan, mockPrices)
+		assert.NoError(t, err)
+		assert.InDelta(t, expectedCost, cost, 0.01)
+	})
 }

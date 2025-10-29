@@ -26,6 +26,7 @@ func updatePricingData() {
 		"https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonRDS/current/index.json",
 		"https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonS3/current/index.json",
 		"https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonElasticLoadBalancing/current/index.json",
+		"https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonVPC/current/index.json",
 	}
 
 	for _, url := range urls {
