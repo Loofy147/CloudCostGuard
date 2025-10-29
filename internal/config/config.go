@@ -14,6 +14,8 @@ type Config struct {
 		// PRNumber is the pull request number.
 		PRNumber int    `yaml:"pr_number"`
 	} `yaml:"github"`
+	// Region is the AWS region to use for pricing.
+	Region string `yaml:"region"`
 }
 
 // LoadConfig loads the configuration from the specified path.

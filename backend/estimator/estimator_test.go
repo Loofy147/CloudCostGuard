@@ -91,11 +91,34 @@ func createMockPriceList() *pricing.PriceList {
 		},
 	}
 
+	// Mock EC2 t2.micro price in a different region: $12/hr
+	priceList.Products["ec2-t2-micro-eu-sku"] = pricing.Product{
+		SKU: "ec2-t2-micro-eu-sku",
+		Attributes: pricing.ProductAttributes{
+			ServiceCode:     "AmazonEC2",
+			InstanceType:    "t2.micro",
+			Location:        "EU (Ireland)",
+			OperatingSystem: "Linux",
+			UsageType:       "BoxUsage:t2.micro",
+		},
+	}
+	pd5 := pricing.PriceDimension{}
+	pd5.PricePerUnit.USD = "12.0"
+	priceList.Terms.OnDemand["ec2-t2-micro-eu-sku"] = map[string]pricing.Term{
+		"term1": {
+			PriceDimensions: map[string]pricing.PriceDimension{
+				"dim1": pd5,
+			},
+		},
+	}
+
 	return priceList
 }
 
 func TestEstimate(t *testing.T) {
 	mockPrices := createMockPriceList()
+	usEastRegion := "US East (N. Virginia)"
+	euWestRegion := "EU (Ireland)"
 
 	t.Run("estimates cost for new EC2 instance", func(t *testing.T) {
 		plan := &terraform.Plan{
@@ -111,7 +134,7 @@ func TestEstimate(t *testing.T) {
 
 		// Expected cost: $10/hr * 730 hrs/month = $7300
 		expectedCost := 10.0 * 730
-		cost, err := Estimate(plan, mockPrices)
+		cost, err := Estimate(plan, mockPrices, usEastRegion)
 		assert.NoError(t, err)
 		assert.InDelta(t, expectedCost, cost, 0.01)
 	})
@@ -130,7 +153,7 @@ func TestEstimate(t *testing.T) {
 
 		// Expected cost: -$10/hr * 730 hrs/month = -$7300
 		expectedCost := -10.0 * 730
-		cost, err := Estimate(plan, mockPrices)
+		cost, err := Estimate(plan, mockPrices, usEastRegion)
 		assert.NoError(t, err)
 		assert.InDelta(t, expectedCost, cost, 0.01)
 	})
@@ -150,7 +173,7 @@ func TestEstimate(t *testing.T) {
 
 		// Expected cost: ($20/hr - $10/hr) * 730 hrs/month = $7300
 		expectedCost := (20.0 - 10.0) * 730
-		cost, err := Estimate(plan, mockPrices)
+		cost, err := Estimate(plan, mockPrices, usEastRegion)
 		assert.NoError(t, err)
 		assert.InDelta(t, expectedCost, cost, 0.01)
 	})
@@ -175,11 +198,10 @@ func TestEstimate(t *testing.T) {
 
 		// Expected cost: ($10/hr * 730) + ($0.10/GB * 100 GB) = 7300 + 10 = $7310
 		expectedCost := (10.0 * 730) + (0.10 * 100)
-		cost, err := Estimate(plan, mockPrices)
+		cost, err := Estimate(plan, mockPrices, usEastRegion)
 		assert.NoError(t, err)
 		assert.InDelta(t, expectedCost, cost, 0.01)
 	})
-
 
 	t.Run("skips unsupported resources", func(t *testing.T) {
 		plan := &terraform.Plan{
@@ -200,7 +222,7 @@ func TestEstimate(t *testing.T) {
 		}
 
 		expectedCost := 10.0 * 730
-		cost, err := Estimate(plan, mockPrices)
+		cost, err := Estimate(plan, mockPrices, usEastRegion)
 		assert.NoError(t, err)
 		assert.InDelta(t, expectedCost, cost, 0.01)
 	})
@@ -219,8 +241,45 @@ func TestEstimate(t *testing.T) {
 
 		// Expected cost: $0.045/hr * 730 hrs/month = $32.85
 		expectedCost := 0.045 * 730
-		cost, err := Estimate(plan, mockPrices)
+		cost, err := Estimate(plan, mockPrices, usEastRegion)
 		assert.NoError(t, err)
 		assert.InDelta(t, expectedCost, cost, 0.01)
+	})
+
+	t.Run("uses the correct region for pricing", func(t *testing.T) {
+		plan := &terraform.Plan{
+			ResourceChanges: []*terraform.ResourceChange{
+				{
+					Address: "aws_instance.web",
+					Type:    "aws_instance",
+					Change:  terraform.Change{Actions: []string{"create"}},
+					After:   map[string]interface{}{"instance_type": "t2.micro"},
+				},
+			},
+		}
+
+		// Expected cost for eu-west-1: $12/hr * 730 hrs/month = $8760
+		expectedCost := 12.0 * 730
+		cost, err := Estimate(plan, mockPrices, euWestRegion)
+		assert.NoError(t, err)
+		assert.InDelta(t, expectedCost, cost, 0.01)
+	})
+
+	t.Run("returns zero cost for resources in a region with no pricing data", func(t *testing.T) {
+		plan := &terraform.Plan{
+			ResourceChanges: []*terraform.ResourceChange{
+				{
+					Address: "aws_instance.web",
+					Type:    "aws_instance",
+					Change:  terraform.Change{Actions: []string{"create"}},
+					After:   map[string]interface{}{"instance_type": "t2.micro"},
+				},
+			},
+		}
+
+		// We have no mock data for ap-southeast-2, so the cost should be 0
+		cost, err := Estimate(plan, mockPrices, "ap-southeast-2")
+		assert.NoError(t, err)
+		assert.Equal(t, 0.0, cost)
 	})
 }
