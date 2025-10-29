@@ -1,0 +1,132 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "description": "This is the API for the CloudCostGuard backend service.",
+        "title": "CloudCostGuard API",
+        "termsOfService": "http://swagger.io/terms/",
+        "contact": {
+            "name": "API Support",
+            "url": "http://www.swagger.io/support",
+            "email": "support@swagger.io"
+        },
+        "license": {
+            "name": "Apache 2.0",
+            "url": "http://www.apache.org/licenses/LICENSE-2.0.html"
+        },
+        "version": "1.0"
+    },
+    "host": "localhost:8080",
+    "basePath": "/",
+    "paths": {
+        "/estimate": {
+            "post": {
+                "description": "Parses a Terraform plan, estimates the cost, and returns the estimated monthly cost.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "summary": "Estimate Terraform plan cost",
+                "parameters": [
+                    {
+                        "description": "Terraform Plan",
+                        "name": "plan",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/terraform.Plan"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "number",
+                                "format": "float64"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Failed to parse Terraform plan",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Failed to estimate cost",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "503": {
+                        "description": "Pricing data is not yet available",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "terraform.Change": {
+            "type": "object",
+            "properties": {
+                "actions": {
+                    "description": "Actions is a list of actions to be taken on the resource.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "terraform.Plan": {
+            "type": "object",
+            "properties": {
+                "resource_changes": {
+                    "description": "ResourceChanges is a list of resource changes in the plan.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/terraform.ResourceChange"
+                    }
+                }
+            }
+        },
+        "terraform.ResourceChange": {
+            "type": "object",
+            "properties": {
+                "address": {
+                    "description": "Address is the address of the resource.",
+                    "type": "string"
+                },
+                "after": {
+                    "description": "After is the state of the resource after the change.",
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "before": {
+                    "description": "Before is the state of the resource before the change.",
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "change": {
+                    "description": "Change represents the actions to be taken on a resource.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/terraform.Change"
+                        }
+                    ]
+                },
+                "type": {
+                    "description": "Type is the type of the resource.",
+                    "type": "string"
+                }
+            }
+        }
+    }
+}
