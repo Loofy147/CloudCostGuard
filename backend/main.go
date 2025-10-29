@@ -97,6 +97,7 @@ func statusHandler(w http.ResponseWriter, r *http.Request) {
 // @Accept  json
 // @Produce  json
 // @Param   plan body terraform.Plan true "Terraform Plan"
+// @Param   region query string false "AWS Region" default(us-east-1)
 // @Success 200 {object} map[string]float64
 // @Failure 400 {string} string "Failed to parse Terraform plan"
 // @Failure 500 {string} string "Failed to estimate cost"
@@ -106,6 +107,11 @@ func estimateHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Only POST method is allowed", http.StatusMethodNotAllowed)
 		return
+	}
+
+	region := r.URL.Query().Get("region")
+	if region == "" {
+		region = "us-east-1"
 	}
 
 	plan, err := terraform.ParsePlan(r.Body)
@@ -123,7 +129,7 @@ func estimateHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cost, err := estimator.Estimate(plan, currentPriceList)
+	cost, err := estimator.Estimate(plan, currentPriceList, region)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to estimate cost: %v", err), http.StatusInternalServerError)
 		return

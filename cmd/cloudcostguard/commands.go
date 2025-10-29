@@ -11,8 +11,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var region string
+
 func init() {
 	rootCmd.AddCommand(analyzeCmd)
+	analyzeCmd.Flags().StringVar(&region, "region", "", "AWS region to use for pricing")
 }
 
 // analyzeCmd represents the analyze command, which is the main entry point for the CLI tool.
@@ -31,13 +34,22 @@ var analyzeCmd = &cobra.Command{
 
 		repo := ""
 		prNumberStr := ""
+		resolvedRegion := "us-east-1" // Default region
 
 		cfg, err := config.LoadConfig(".cloudcostguard.yml")
 		if err == nil {
 			repo = cfg.GitHub.Repo
 			prNumberStr = fmt.Sprintf("%d", cfg.GitHub.PRNumber)
+			if cfg.Region != "" {
+				resolvedRegion = cfg.Region
+			}
 		} else if !os.IsNotExist(err) {
 			return fmt.Errorf("could not load config file: %w", err)
+		}
+
+		// Command-line flag overrides config file
+		if region != "" {
+			resolvedRegion = region
 		}
 
 		if len(args) == 3 {
@@ -67,7 +79,8 @@ var analyzeCmd = &cobra.Command{
 			backendURL = "http://localhost:8080"
 		}
 
-		req, err := http.NewRequest("POST", backendURL+"/estimate", planFile)
+		url := fmt.Sprintf("%s/estimate?region=%s", backendURL, resolvedRegion)
+		req, err := http.NewRequest("POST", url, planFile)
 		if err != nil {
 			return fmt.Errorf("failed to create request to backend: %w", err)
 		}

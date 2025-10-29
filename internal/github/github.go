@@ -8,7 +8,9 @@ import (
 	"os"
 )
 
+// commentBody is the structure of the JSON payload for the GitHub API.
 type commentBody struct {
+	// Body is the content of the comment.
 	Body string `json:"body"`
 }
 
