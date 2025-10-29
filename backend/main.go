@@ -97,7 +97,7 @@ func statusHandler(w http.ResponseWriter, r *http.Request) {
 // @Produce  json
 // @Param   body body estimator.EstimateRequest true "Request body"
 // @Param   region query string false "AWS Region" default(us-east-1)
-// @Success 200 {object} map[string]float64
+// @Success 200 {object} estimator.EstimationResponse
 // @Failure 400 {string} string "Failed to parse request body or Terraform plan"
 // @Failure 500 {string} string "Failed to estimate cost"
 // @Failure 503 {string} string "Pricing data is not yet available"
@@ -136,10 +136,8 @@ func estimateHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response := map[string]float64{"estimated_monthly_cost": cost}
-
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
+	if err := json.NewEncoder(w).Encode(cost); err != nil {
 		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
 	}
 }

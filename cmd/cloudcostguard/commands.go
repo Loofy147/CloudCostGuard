@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 
 	"cloudcostguard/backend/estimator"
 	"cloudcostguard/internal/config"
@@ -108,14 +109,13 @@ var analyzeCmd = &cobra.Command{
 			return fmt.Errorf("backend returned an error: %s", resp.Status)
 		}
 
-		var result map[string]float64
+		var result estimator.EstimationResponse
 		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 			return fmt.Errorf("failed to decode backend response: %w", err)
 		}
-		cost := result["estimated_monthly_cost"]
 
 		// 2. Post the comment to GitHub
-		comment := fmt.Sprintf("## CloudCostGuard Analysis 🤖\n\nEstimated Monthly Cost Impact: **$%.2f**", cost)
+		comment := formatComment(result)
 		if err := github.PostComment(repo, prNumberStr, githubToken, comment); err != nil {
 			return fmt.Errorf("could not post comment to GitHub: %w", err)
 		}
@@ -123,4 +123,20 @@ var analyzeCmd = &cobra.Command{
 		fmt.Println("Successfully posted cost analysis to GitHub.")
 		return nil
 	},
+}
+
+func formatComment(result estimator.EstimationResponse) string {
+	var builder strings.Builder
+	builder.WriteString("## CloudCostGuard Analysis 🤖\n\n")
+	builder.WriteString(fmt.Sprintf("Estimated Monthly Cost Impact: **$%.2f**\n\n", result.TotalMonthlyCost))
+
+	if len(result.Resources) > 0 {
+		builder.WriteString("| Resource | Monthly Cost | Details |\n")
+		builder.WriteString("| :--- | :--- | :--- |\n")
+		for _, resource := range result.Resources {
+			builder.WriteString(fmt.Sprintf("| `%s` | `$%.2f` | %s |\n", resource.Address, resource.MonthlyCost, resource.CostBreakdown))
+		}
+	}
+
+	return builder.String()
 }
