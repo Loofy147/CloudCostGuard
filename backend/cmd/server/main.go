@@ -15,6 +15,7 @@ import (
 	"cloudcostguard/backend/internal/service"
 	"cloudcostguard/backend/internal/service/pricing"
 	"database/sql"
+	"strings"
 	"go.uber.org/zap"
 )
 
@@ -29,6 +30,12 @@ func main() {
 		logger.Fatal("Failed to load config", zap.Error(err))
 	}
 
+	// CRITICAL: Validate database connection has real credentials
+	connStr := os.Getenv("DATABASE_URL")
+	if connStr == "" || strings.Contains(connStr, "password=password") {
+		logger.Fatal("ERROR: DATABASE_URL must be set with real credentials")
+	}
+
 	// Initialize dependencies
 	db, err := postgres.NewDB(cfg.Database)
 	if err != nil {
@@ -39,7 +46,7 @@ func main() {
 	createTable(db, logger)
 
 	// Initialize services
-	pricingRepo := postgres.NewPricingRepository(db)
+	pricingRepo := postgres.NewPricingRepository(db, logger)
 	pricingCache := cache.NewPricingCache(pricingRepo, logger, cfg.Cache.RefreshInterval)
 	estimatorSvc := service.NewEstimator(pricingCache, logger)
 	pricingStorer := pricing.NewPostgresPricingDataStorer(db)
@@ -48,7 +55,7 @@ func main() {
 
 
 	// Initialize HTTP server
-	router := api.NewRouter(estimatorSvc, logger, db)
+	router := api.NewRouter(estimatorSvc, logger, db, pricingCache)
 	srv := &http.Server{
 		Addr:         ":" + cfg.Server.Port,
 		Handler:      router,

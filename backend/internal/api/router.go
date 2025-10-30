@@ -3,24 +3,37 @@ package api
 import (
 	"database/sql"
 	"net/http"
+	"time"
 
 	"cloudcostguard/backend/internal/api/handlers"
+	"cloudcostguard/backend/internal/api/middleware"
+	"cloudcostguard/backend/internal/cache"
 	"cloudcostguard/backend/internal/service"
 	"github.com/swaggo/http-swagger"
 
 	"go.uber.org/zap"
 )
 
-func NewRouter(estimatorSvc *service.Estimator, logger *zap.Logger, db *sql.DB) http.Handler {
+func NewRouter(estimatorSvc *service.Estimator, logger *zap.Logger, db *sql.DB, cache *cache.PricingCache) http.Handler {
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("/swagger/", httpSwagger.WrapHandler)
-
+	// Handlers
 	estimateHandler := handlers.NewEstimateHandler(estimatorSvc, logger)
-	mux.Handle("/estimate", estimateHandler)
-
 	statusHandler := handlers.NewStatusHandler(logger, db)
-	mux.Handle("/status", statusHandler)
+	healthHandler := handlers.NewHealthHandler(db, cache, logger)
 
-	return mux
+	// Routing
+	mux.HandleFunc("/swagger/", httpSwagger.WrapHandler)
+	mux.Handle("/estimate", estimateHandler)
+	mux.Handle("/status", statusHandler)
+	mux.HandleFunc("/health/live", healthHandler.LivenessProbe)
+	mux.HandleFunc("/health/ready", healthHandler.ReadinessProbe)
+
+	// Middleware chaining
+	var handler http.Handler = mux
+	handler = middleware.TimeoutMiddleware(30*time.Second)(handler)
+	handler = middleware.RecoveryMiddleware(logger)(handler)
+	handler = middleware.LoggingMiddleware(logger)(handler)
+
+	return handler
 }

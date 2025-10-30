@@ -83,3 +83,9 @@ func (pc *PricingCache) backgroundRefresh() {
 func (pc *PricingCache) Stop() {
     close(pc.stopChan)
 }
+
+func (pc *PricingCache) IsReady() bool {
+	pc.mu.RLock()
+	defer pc.mu.RUnlock()
+	return pc.data != nil && len(pc.data.Products) > 0
+}
