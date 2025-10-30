@@ -9,6 +9,7 @@ import (
 	"cloudcostguard/backend/internal/api/middleware"
 	"cloudcostguard/backend/internal/cache"
 	"cloudcostguard/backend/internal/service"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/swaggo/http-swagger"
 
 	"go.uber.org/zap"
@@ -28,12 +29,15 @@ func NewRouter(estimatorSvc *service.Estimator, logger *zap.Logger, db *sql.DB, 
 	mux.Handle("/status", statusHandler)
 	mux.HandleFunc("/health/live", healthHandler.LivenessProbe)
 	mux.HandleFunc("/health/ready", healthHandler.ReadinessProbe)
+	mux.Handle("/metrics", promhttp.Handler())
 
 	// Middleware chaining
 	var handler http.Handler = mux
+	handler = middleware.MetricsMiddleware()(handler)
 	handler = middleware.TimeoutMiddleware(30*time.Second)(handler)
 	handler = middleware.RecoveryMiddleware(logger)(handler)
 	handler = middleware.LoggingMiddleware(logger)(handler)
+	handler = middleware.RequestIDMiddleware()(handler)
 
 	return handler
 }
