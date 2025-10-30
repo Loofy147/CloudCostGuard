@@ -20,6 +20,7 @@ type EstimationResponse struct {
 	TotalMonthlyCost float64        `json:"total_monthly_cost"`
 	Currency         string         `json:"currency"`
 	Resources        []ResourceCost `json:"resources"`
+	Recommendations  []string       `json:"recommendations"`
 }
 
 // ResourceCost represents the cost of a single resource.
