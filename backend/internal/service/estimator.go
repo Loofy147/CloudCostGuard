@@ -2,9 +2,11 @@ package service
 
 import (
 	"cloudcostguard/backend/estimator"
+	"cloudcostguard/backend/internal/api/middleware"
 	"cloudcostguard/backend/internal/cache"
 	"cloudcostguard/backend/terraform"
 	"go.uber.org/zap"
+	"time"
 )
 
 type Estimator struct {
@@ -20,6 +22,11 @@ func NewEstimator(pricingCache *cache.PricingCache, logger *zap.Logger) *Estimat
 }
 
 func (s *Estimator) Estimate(plan *terraform.Plan, region string, usageEstimates *estimator.UsageEstimates) (*estimator.EstimationResponse, error) {
+	startTime := time.Now()
+	defer func() {
+		middleware.EstimationDuration.Observe(time.Since(startTime).Seconds())
+	}()
+
 	priceList := s.pricingCache.Get()
 	if priceList == nil {
 		s.logger.Error("Pricing data is not available")

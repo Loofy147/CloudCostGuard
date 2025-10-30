@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
 
@@ -26,13 +27,31 @@ func LoggingMiddleware(logger *zap.Logger) func(http.Handler) http.Handler {
 			start := time.Now()
 			wrapped := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
 			next.ServeHTTP(wrapped, r)
+			requestID, _ := r.Context().Value(requestIDKey).(string)
 			logger.Info("Request",
+				zap.String("request_id", requestID),
 				zap.String("method", r.Method),
 				zap.String("path", r.URL.Path),
 				zap.String("remote_addr", r.RemoteAddr),
 				zap.Int("status_code", wrapped.statusCode),
 				zap.Duration("duration", time.Since(start)),
 			)
+		})
+	}
+}
+
+type contextKey string
+
+const requestIDKey contextKey = "request_id"
+
+// RequestIDMiddleware generates a unique request ID and adds it to the request context.
+func RequestIDMiddleware() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			requestID := uuid.New().String()
+			ctx := context.WithValue(r.Context(), requestIDKey, requestID)
+			r = r.WithContext(ctx)
+			next.ServeHTTP(w, r)
 		})
 	}
 }
