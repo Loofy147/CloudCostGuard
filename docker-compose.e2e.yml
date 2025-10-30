@@ -24,6 +24,7 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: "postgres://postgres:password@db:5432/pricing?sslmode=disable"
+      CCG_API_KEYS: "test-key"
 
   mock-github:
     build:
@@ -43,4 +44,8 @@ services:
       CCG_BACKEND_URL: "http://backend:8080"
       GITHUB_API_URL: "http://mock-github:8081"
       GITHUB_TOKEN: "test-token"
-    command: ["./cloudcostguard", "analyze", "/testdata/create_ec2.json", "test-org/test-repo", "1"]
+      CCG_API_KEY: "test-key"
+    volumes:
+      - ./test:/test
+      - ./testdata:/testdata
+    command: ["sh", "/test/e2e/run.sh"]

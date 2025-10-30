@@ -14,11 +14,21 @@ import (
 	"cloudcostguard/backend/internal/repository/postgres"
 	"cloudcostguard/backend/internal/service"
 	"cloudcostguard/backend/internal/service/pricing"
-	"database/sql"
+	"fmt"
+	"os/exec"
 	"go.uber.org/zap"
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "migrate" {
+		runMigrations()
+		return
+	}
+
+	runServer()
+}
+
+func runServer() {
 	// Initialize logger
 	logger, _ := zap.NewProduction()
 	defer logger.Sync()
@@ -29,15 +39,12 @@ func main() {
 		logger.Fatal("Failed to load config", zap.Error(err))
 	}
 
-
 	// Initialize dependencies
 	db, err := postgres.NewDB(cfg.Database)
 	if err != nil {
 		logger.Fatal("Failed to connect to database", zap.Error(err))
 	}
 	defer db.Close()
-
-	createTable(db, logger)
 
 	// Initialize services
 	pricingRepo := postgres.NewPricingRepository(db, logger)
@@ -47,9 +54,8 @@ func main() {
 	pricingSvc := pricing.NewService(logger, pricingStorer)
 	pricingSvc.Start(context.Background())
 
-
 	// Initialize HTTP server
-	router := api.NewRouter(estimatorSvc, logger, db, pricingCache)
+	router := api.NewRouter(estimatorSvc, logger, db, pricingCache, cfg.API)
 	srv := &http.Server{
 		Addr:         ":" + cfg.Server.Port,
 		Handler:      router,
@@ -84,17 +90,14 @@ func main() {
 	logger.Info("Server exited")
 }
 
-func createTable(db *sql.DB, logger *zap.Logger) {
-	createTableSQL := `
-	CREATE TABLE IF NOT EXISTS aws_prices (
-		sku TEXT PRIMARY KEY,
-		product_json JSONB,
-		terms_json JSONB,
-		last_updated TIMESTAMPTZ NOT NULL
-	);`
-
-	_, err := db.Exec(createTableSQL)
-	if err != nil {
-		logger.Fatal("Failed to create prices table", zap.Error(err))
+func runMigrations() {
+	fmt.Println("Running database migrations...")
+	cmd := exec.Command("migrate", "-path", "/migrations", "-database", os.Getenv("DATABASE_URL"), "up")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		fmt.Printf("Error running migrations: %v\n", err)
+		os.Exit(1)
 	}
+	fmt.Println("Migrations completed successfully.")
 }

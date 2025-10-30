@@ -2,10 +2,12 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"cloudcostguard/backend/estimator"
 	"cloudcostguard/backend/internal/service"
+	"cloudcostguard/backend/terraform"
 	"go.uber.org/zap"
 )
 
@@ -41,6 +43,12 @@ func (h *EstimateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	plan := requestBody.Plan
 
+	if err := validatePlan(plan); err != nil {
+		h.logger.Error("Invalid plan", zap.Error(err))
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	cost, err := h.estimator.Estimate(plan, region, &requestBody.UsageEstimates)
 	if err != nil {
         if _, ok := err.(*service.ServiceUnavailableError); ok {
@@ -57,4 +65,25 @@ func (h *EstimateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.logger.Error("Failed to encode response", zap.Error(err))
 		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
 	}
+}
+
+func validatePlan(plan *terraform.Plan) error {
+	if plan == nil {
+		return fmt.Errorf("plan cannot be nil")
+	}
+
+	if len(plan.ResourceChanges) > 1000 {
+		return fmt.Errorf("too many resources in plan (max 1000)")
+	}
+
+	for _, rc := range plan.ResourceChanges {
+		if rc.Address == "" {
+			return fmt.Errorf("resource address cannot be empty")
+		}
+		if len(rc.Address) > 256 {
+			return fmt.Errorf("resource address too long")
+		}
+	}
+
+	return nil
 }

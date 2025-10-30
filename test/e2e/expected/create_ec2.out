@@ -1,0 +1,3 @@
+Monthly cost impact: $1.23
+Recommendations:
+- Use t3.small instances if workload allows - save ~$45/month

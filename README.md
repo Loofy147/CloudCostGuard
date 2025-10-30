@@ -118,3 +118,30 @@ docker-compose -f docker-compose.e2e.yml up --build --abort-on-container-exit
 ## CI/CD Integration
 
 The `cloudcostguard` CLI is a lightweight, self-contained binary. You can build this client and run it in your CI/CD pipeline. Configure it to point to your hosted CloudCostGuard backend via the `CCG_BACKEND_URL` environment variable.
+
+## Deployment (Kubernetes)
+
+This project includes Kubernetes manifests to deploy the backend service.
+
+### 1. Database Migrations
+
+Before deploying the application, you must run the database migrations. The backend Docker image includes a `migrate` command for this purpose.
+
+```bash
+docker build -t cloudcostguard/backend:latest -f backend/Dockerfile .
+
+docker run -it --rm \
+  -e DATABASE_URL="your_database_url" \
+  cloudcostguard/backend:latest \
+  migrate
+```
+
+### 2. Deploy to Kubernetes
+
+The Kubernetes manifests are located in the `k8s` directory.
+
+```bash
+kubectl apply -f k8s/
+```
+
+This will create a `Deployment` and a `Service` for the backend. You will need to create a `Secret` named `db-credentials` with the database host and password.
