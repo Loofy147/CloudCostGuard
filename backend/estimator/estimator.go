@@ -57,6 +57,8 @@ func Estimate(plan *terraform.Plan, priceList *pricing.PriceList, region string,
 		response.TotalMonthlyCost += resource.MonthlyCost
 	}
 
+	response.Recommendations = GenerateRecommendations(plan, usage)
+
 	return response, nil
 }
 
