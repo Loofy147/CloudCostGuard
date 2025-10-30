@@ -49,7 +49,7 @@ func main() {
 
 
 	// Initialize HTTP server
-	router := api.NewRouter(estimatorSvc, logger, db, pricingCache)
+	router := api.NewRouter(estimatorSvc, logger, db, pricingCache, cfg.API)
 	srv := &http.Server{
 		Addr:         ":" + cfg.Server.Port,
 		Handler:      router,

@@ -2,11 +2,14 @@ package middleware
 
 import (
 	"context"
+	"crypto/subtle"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"go.uber.org/zap"
+	"golang.org/x/time/rate"
 )
 
 // responseWriter is a wrapper for http.ResponseWriter that captures the status code.
@@ -36,6 +39,55 @@ func LoggingMiddleware(logger *zap.Logger) func(http.Handler) http.Handler {
 				zap.Int("status_code", wrapped.statusCode),
 				zap.Duration("duration", time.Since(start)),
 			)
+		})
+	}
+}
+
+// APIKeyAuthMiddleware checks for a valid API key in the Authorization header.
+func APIKeyAuthMiddleware(validKeys []string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			authHeader := r.Header.Get("Authorization")
+			if authHeader == "" {
+				http.Error(w, "Missing authorization header", http.StatusUnauthorized)
+				return
+			}
+
+			parts := strings.SplitN(authHeader, " ", 2)
+			if len(parts) != 2 || parts[0] != "Bearer" {
+				http.Error(w, "Invalid authorization format", http.StatusUnauthorized)
+				return
+			}
+
+			apiKey := parts[1]
+			valid := false
+			for _, key := range validKeys {
+				if subtle.ConstantTimeCompare([]byte(key), []byte(apiKey)) == 1 {
+					valid = true
+					break
+				}
+			}
+
+			if !valid {
+				http.Error(w, "Invalid API key", http.StatusUnauthorized)
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// RateLimitMiddleware limits the number of requests per second.
+func RateLimitMiddleware(requestsPerSecond int, burst int) func(http.Handler) http.Handler {
+	limiter := rate.NewLimiter(rate.Limit(requestsPerSecond), burst)
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !limiter.Allow() {
+				http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
+				return
+			}
+			next.ServeHTTP(w, r)
 		})
 	}
 }

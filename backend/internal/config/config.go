@@ -8,17 +8,24 @@ import (
 )
 
 type Config struct {
-    Server   ServerConfig
-    Database DatabaseConfig
-    Cache    CacheConfig
-    Logging  LoggingConfig
+	Server   ServerConfig
+	Database DatabaseConfig
+	Cache    CacheConfig
+	Logging  LoggingConfig
+	API      APIConfig
 }
 
 type ServerConfig struct {
-    Port            string        `envconfig:"PORT" default:"8080"`
-    ReadTimeout     time.Duration `envconfig:"READ_TIMEOUT" default:"15s"`
-    WriteTimeout    time.Duration `envconfig:"WRITE_TIMEOUT" default:"15s"`
-    ShutdownTimeout time.Duration `envconfig:"SHUTDOWN_TIMEOUT" default:"30s"`
+	Port            string        `envconfig:"PORT" default:"8080"`
+	ReadTimeout     time.Duration `envconfig:"READ_TIMEOUT" default:"15s"`
+	WriteTimeout    time.Duration `envconfig:"WRITE_TIMEOUT" default:"15s"`
+	ShutdownTimeout time.Duration `envconfig:"SHUTDOWN_TIMEOUT" default:"30s"`
+}
+
+type APIConfig struct {
+	RateLimitPerSecond int      `envconfig:"API_RATE_LIMIT_PER_SECOND" default:"10"`
+	RateLimitBurst     int      `envconfig:"API_RATE_LIMIT_BURST" default:"5"`
+	APIKeys            []string `envconfig:"API_KEYS" required:"true"`
 }
 
 type DatabaseConfig struct {
