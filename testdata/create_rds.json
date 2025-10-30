@@ -1,0 +1,16 @@
+{
+    "resource_changes": [
+        {
+            "address": "aws_db_instance.test",
+            "type": "aws_db_instance",
+            "change": {
+                "actions": [
+                    "create"
+                ]
+            },
+            "after": {
+                "instance_class": "db.t2.micro"
+            }
+        }
+    ]
+}

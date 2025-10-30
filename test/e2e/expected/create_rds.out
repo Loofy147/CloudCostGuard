@@ -1,0 +1,4 @@
+Monthly cost impact: $15.77
+Recommendations:
+- Consider Reserved Instances for RDS - could save ~40%
+- Use t3.small RDS instances if workload allows - save ~$80/month
