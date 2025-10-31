@@ -13,6 +13,8 @@ type EstimateRequest struct {
 // UsageEstimates represents the structure of the usage_estimates block in the config file.
 type UsageEstimates struct {
 	NATGatewayGBProcessed int `yaml:"nat_gateway_gb_processed" json:"nat_gateway_gb_processed"`
+	LambdaMonthlyRequests int `yaml:"lambda_monthly_requests" json:"lambda_monthly_requests"`
+	LambdaAvgDurationMS   int `yaml:"lambda_avg_duration_ms" json:"lambda_avg_duration_ms"`
 }
 
 // EstimationResponse defines the structure of the response body for the /estimate endpoint.

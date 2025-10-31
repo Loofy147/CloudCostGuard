@@ -18,6 +18,8 @@ var awsPricingURLs = []string{
 	"https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AWSELB/current/index.json",
 	"https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonEBS/current/index.json",
 	"https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonVPC/current/index.json",
+	"https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AWSLambda/current/index.json",
+	"https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonECS/current/index.json",
 }
 
 type PricingDataStorer interface {

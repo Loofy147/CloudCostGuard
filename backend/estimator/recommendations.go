@@ -40,16 +40,26 @@ func checkDBInstance(rc *terraform.ResourceChange) []string {
 	if multiAZ, ok := rc.After["multi_az"].(bool); ok && multiAZ {
 		recs = append(recs, "💡 Consider Reserved Instances for RDS - could save ~40%")
 	}
-	if instanceClass, ok := rc.After["instance_class"].(string); ok && strings.Contains(instanceClass, "t3.medium") {
-		recs = append(recs, "💡 Use t3.small RDS instances if workload allows - save ~$80/month")
+	if instanceClass, ok := rc.After["instance_class"].(string); ok {
+		if strings.Contains(instanceClass, "t3.medium") {
+			recs = append(recs, "💡 Use t3.small RDS instances if workload allows - save ~$80/month")
+		}
+		if !strings.HasPrefix(instanceClass, "db.r6g") && !strings.HasPrefix(instanceClass, "db.m6g") {
+			recs = append(recs, "💡 Consider switching to ARM-based Graviton RDS instances for better price-performance.")
+		}
 	}
 	return recs
 }
 
 func checkInstance(rc *terraform.ResourceChange) []string {
 	var recs []string
-	if instanceType, ok := rc.After["instance_type"].(string); ok && strings.Contains(instanceType, "t3.medium") {
-		recs = append(recs, "💡 Use t3.small instances if workload allows - save ~$45/month")
+	if instanceType, ok := rc.After["instance_type"].(string); ok {
+		if strings.Contains(instanceType, "t3.medium") {
+			recs = append(recs, "💡 Use t3.small instances if workload allows - save ~$45/month")
+		}
+		if !strings.HasPrefix(instanceType, "t4g") {
+			recs = append(recs, "💡 Consider switching to ARM-based Graviton EC2 instances for better price-performance.")
+		}
 	}
 	return recs
 }
