@@ -14,6 +14,7 @@ import (
 	"cloudcostguard/backend/internal/repository/postgres"
 	"cloudcostguard/backend/internal/service"
 	"cloudcostguard/backend/internal/service/pricing"
+	"cloudcostguard/backend/internal/tracing"
 	"fmt"
 	"os/exec"
 	"go.uber.org/zap"
@@ -32,6 +33,10 @@ func runServer() {
 	// Initialize logger
 	logger, _ := zap.NewProduction()
 	defer logger.Sync()
+
+	// Initialize tracer
+	shutdownTracer := tracing.InitTracer()
+	defer shutdownTracer()
 
 	// Load configuration
 	cfg, err := config.Load()
