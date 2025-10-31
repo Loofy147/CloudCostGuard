@@ -56,10 +56,12 @@ func TestGenerateRecommendations(t *testing.T) {
 
 	recommendations := GenerateRecommendations(plan, usage)
 
-	assert.Len(t, recommendations, 5)
+	assert.Len(t, recommendations, 7)
 	assert.Contains(t, recommendations, "💡 NAT Gateway data transfer is expensive - consider VPC endpoints for AWS services")
 	assert.Contains(t, recommendations, "💡 Consider Reserved Instances for RDS - could save ~40%")
 	assert.Contains(t, recommendations, "💡 Use t3.small RDS instances if workload allows - save ~$80/month")
+	assert.Contains(t, recommendations, "💡 Consider switching to ARM-based Graviton RDS instances for better price-performance.")
 	assert.Contains(t, recommendations, "💡 Use t3.small instances if workload allows - save ~$45/month")
+	assert.Contains(t, recommendations, "💡 Consider switching to ARM-based Graviton EC2 instances for better price-performance.")
 	assert.Contains(t, recommendations, "💡 Enable EBS snapshot lifecycle policy to manage backup costs")
 }

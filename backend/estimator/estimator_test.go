@@ -335,4 +335,80 @@ func TestEstimate(t *testing.T) {
 		assert.Equal(t, 0.0, result.TotalMonthlyCost)
 		assert.Len(t, result.Resources, 0)
 	})
+
+	t.Run("estimates cost for a new Lambda function", func(t *testing.T) {
+		plan := &terraform.Plan{
+			ResourceChanges: []*terraform.ResourceChange{
+				{
+					Address: "aws_lambda_function.test",
+					Type:    "aws_lambda_function",
+					After: map[string]interface{}{
+						"memory_size": float64(512),
+					},
+					Change: terraform.Change{
+						Actions: []string{"create"},
+					},
+				},
+			},
+		}
+		priceList := &pricing.PriceList{
+			Products: map[string]pricing.Product{
+				"lambda-request": {
+					Attributes: pricing.ProductAttributes{
+						ServiceCode: "AWSLambda",
+						UsageType:   "Request",
+						Location:    "US East (N. Virginia)",
+					},
+				},
+				"lambda-gb-second": {
+					Attributes: pricing.ProductAttributes{
+						ServiceCode: "AWSLambda",
+						UsageType:   "GB-Second",
+						Location:    "US East (N. Virginia)",
+					},
+				},
+			},
+			Terms: struct {
+				OnDemand map[string]map[string]pricing.Term `json:"OnDemand"`
+			}{
+				OnDemand: map[string]map[string]pricing.Term{
+					"lambda-request": {
+						"term": {
+							PriceDimensions: map[string]pricing.PriceDimension{
+								"dim": {
+									PricePerUnit: struct {
+										USD string `json:"USD"`
+									}{
+										USD: "0.0000002",
+									},
+								},
+							},
+						},
+					},
+					"lambda-gb-second": {
+						"term": {
+							PriceDimensions: map[string]pricing.PriceDimension{
+								"dim": {
+									PricePerUnit: struct {
+										USD string `json:"USD"`
+									}{
+										USD: "0.0000166667",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+		usage := &UsageEstimates{
+			LambdaMonthlyRequests: 2000000,
+			LambdaAvgDurationMS:   500,
+		}
+
+		resp, err := Estimate(plan, priceList, "us-east-1", usage)
+		assert.NoError(t, err)
+		assert.Len(t, resp.Resources, 1)
+		assert.InDelta(t, 1.87, resp.Resources[0].MonthlyCost, 0.01)
+	})
 }

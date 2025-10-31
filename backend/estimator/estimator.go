@@ -33,7 +33,7 @@ func Estimate(plan *terraform.Plan, priceList *pricing.PriceList, region string,
 	}
 
 	for _, rc := range plan.ResourceChanges {
-		cost, err := estimateResourceChange(rc, priceList, location, usage)
+		cost, err := estimateResourceChange(rc, priceList, location, usage, plan)
 		if err != nil {
 			fmt.Printf("Warning: skipping unsupported resource %s: %v\n", rc.Address, err)
 			continue
@@ -62,7 +62,7 @@ func Estimate(plan *terraform.Plan, priceList *pricing.PriceList, region string,
 	return response, nil
 }
 
-func estimateResourceChange(rc *terraform.ResourceChange, priceList *pricing.PriceList, region string, usage *UsageEstimates) (*Cost, error) {
+func estimateResourceChange(rc *terraform.ResourceChange, priceList *pricing.PriceList, region string, usage *UsageEstimates, plan *terraform.Plan) (*Cost, error) {
 	costChange := &Cost{Value: 0, Unit: "monthly"} // Default to monthly for aggregation
 	actions := rc.Change.Actions
 	isCreate := len(actions) == 1 && actions[0] == "create"
@@ -70,7 +70,7 @@ func estimateResourceChange(rc *terraform.ResourceChange, priceList *pricing.Pri
 	isUpdate := (len(actions) == 1 && actions[0] == "update") || (len(actions) == 2 && actions[0] == "delete" && actions[1] == "create")
 
 	if isCreate || isUpdate {
-		cost, err := getResourceCost(rc, rc.After, priceList, region, usage)
+		cost, err := getResourceCost(rc, rc.After, priceList, region, usage, plan)
 		if err != nil {
 			return nil, err
 		}
@@ -82,7 +82,7 @@ func estimateResourceChange(rc *terraform.ResourceChange, priceList *pricing.Pri
 	}
 
 	if isDelete || isUpdate {
-		cost, err := getResourceCost(rc, rc.Before, priceList, region, usage)
+		cost, err := getResourceCost(rc, rc.Before, priceList, region, usage, plan)
 		if err != nil {
 			return nil, err
 		}
@@ -96,7 +96,7 @@ func estimateResourceChange(rc *terraform.ResourceChange, priceList *pricing.Pri
 	return costChange, nil
 }
 
-func getResourceCost(rc *terraform.ResourceChange, attributes map[string]interface{}, priceList *pricing.PriceList, region string, usage *UsageEstimates) (*Cost, error) {
+func getResourceCost(rc *terraform.ResourceChange, attributes map[string]interface{}, priceList *pricing.PriceList, region string, usage *UsageEstimates, plan *terraform.Plan) (*Cost, error) {
 	if priceList == nil {
 		return nil, fmt.Errorf("pricing data is nil")
 	}
@@ -119,6 +119,10 @@ func getResourceCost(rc *terraform.ResourceChange, attributes map[string]interfa
 	case "aws_nat_gateway":
 		price, err := costForNATGateway(attributes, priceList, region, usage)
 		return &Cost{Value: price, Unit: "hourly"}, err
+	case "aws_lambda_function":
+		return costForLambda(attributes, priceList, region, usage)
+	case "aws_ecs_service":
+		return costForECSService(rc, attributes, priceList, region, plan)
 	default:
 		return nil, fmt.Errorf("unsupported resource type: %s", rc.Type)
 	}
@@ -248,4 +252,128 @@ func getPriceFromTerms(sku string, priceList *pricing.PriceList) (float64, error
 		}
 	}
 	return 0, fmt.Errorf("could not extract price for SKU %s", sku)
+}
+
+func costForLambda(attributes map[string]interface{}, priceList *pricing.PriceList, region string, usage *UsageEstimates) (*Cost, error) {
+	memorySize, _ := attributes["memory_size"].(float64)
+	if memorySize == 0 {
+		memorySize = 128 // Default memory size
+	}
+
+	var requestPrice, gbSecondPrice float64
+	var err error
+
+	for sku, product := range priceList.Products {
+		attr := product.Attributes
+		if attr.ServiceCode != "AWSLambda" || attr.Location != region {
+			continue
+		}
+
+		if strings.Contains(attr.UsageType, "Request") {
+			requestPrice, err = getPriceFromTerms(sku, priceList)
+			if err != nil {
+				return nil, fmt.Errorf("could not get request price for Lambda: %w", err)
+			}
+		}
+
+		if strings.Contains(attr.UsageType, "GB-Second") {
+			gbSecondPrice, err = getPriceFromTerms(sku, priceList)
+			if err != nil {
+				return nil, fmt.Errorf("could not get GB-Second price for Lambda: %w", err)
+			}
+		}
+	}
+
+	if requestPrice == 0 || gbSecondPrice == 0 {
+		return nil, fmt.Errorf("could not find pricing for Lambda")
+	}
+
+	totalMonthlyCost := 0.0
+	if usage != nil {
+		// Free tier adjustment
+		monthlyRequests := float64(usage.LambdaMonthlyRequests)
+		gbSeconds := (memorySize / 1024) * (float64(usage.LambdaAvgDurationMS) / 1000) * monthlyRequests
+
+		requestCost := (monthlyRequests - 1000000) * requestPrice
+		if requestCost < 0 {
+			requestCost = 0
+		}
+
+		gbSecondCost := (gbSeconds - 400000) * gbSecondPrice
+		if gbSecondCost < 0 {
+			gbSecondCost = 0
+		}
+
+		totalMonthlyCost = requestCost + gbSecondCost
+	}
+
+	return &Cost{
+		Value:    totalMonthlyCost,
+		Unit:     "monthly",
+		Breakdown: fmt.Sprintf("%d requests/month @ %dms avg duration", usage.LambdaMonthlyRequests, usage.LambdaAvgDurationMS),
+	}, nil
+}
+
+func costForECSService(rc *terraform.ResourceChange, attributes map[string]interface{}, priceList *pricing.PriceList, region string, plan *terraform.Plan) (*Cost, error) {
+	desiredCount, _ := attributes["desired_count"].(float64)
+	if desiredCount == 0 {
+		desiredCount = 1
+	}
+
+	taskDefinitionArn, _ := attributes["task_definition"].(string)
+	if taskDefinitionArn == "" {
+		return nil, fmt.Errorf("missing task_definition")
+	}
+
+	var taskDef *terraform.ResourceChange
+	for _, r := range plan.ResourceChanges {
+		if r.Address == taskDefinitionArn {
+			taskDef = r
+			break
+		}
+	}
+
+	if taskDef == nil {
+		return nil, fmt.Errorf("could not find task definition: %s", taskDefinitionArn)
+	}
+
+	cpu, _ := taskDef.After["cpu"].(float64)
+	memory, _ := taskDef.After["memory"].(float64)
+
+	var vcpuPrice, memoryPrice float64
+	var err error
+
+	for sku, product := range priceList.Products {
+		attr := product.Attributes
+		if attr.ServiceCode != "AmazonECS" || attr.Location != region {
+			continue
+		}
+
+		if strings.Contains(attr.UsageType, "vCPU-Hours") {
+			vcpuPrice, err = getPriceFromTerms(sku, priceList)
+			if err != nil {
+				return nil, fmt.Errorf("could not get vCPU price for Fargate: %w", err)
+			}
+		}
+
+		if strings.Contains(attr.UsageType, "GB-Hours") {
+			memoryPrice, err = getPriceFromTerms(sku, priceList)
+			if err != nil {
+				return nil, fmt.Errorf("could not get memory price for Fargate: %w", err)
+			}
+		}
+	}
+
+	if vcpuPrice == 0 || memoryPrice == 0 {
+		return nil, fmt.Errorf("could not find pricing for Fargate")
+	}
+
+	hourlyCost := (cpu/1024)*vcpuPrice + (memory/1024)*memoryPrice
+	totalHourlyCost := hourlyCost * desiredCount
+
+	return &Cost{
+		Value:    totalHourlyCost,
+		Unit:     "hourly",
+		Breakdown: fmt.Sprintf("%d tasks @ %.2f vCPU / %.2f GB", int(desiredCount), cpu/1024, memory/1024),
+	}, nil
 }

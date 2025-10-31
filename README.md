@@ -19,7 +19,7 @@ The workflow is simple and designed to be non-intrusive to the development proce
 
 - **Client-Server Architecture:** A lightweight Go CLI communicates with a powerful backend service for all heavy lifting, ensuring a small footprint in your CI environment.
 - **Production-Ready Pricing Engine:** The backend features a pricing service that periodically fetches AWS pricing data and stores it in a PostgreSQL database for fast, reliable queries.
-- **Comprehensive Resource Coverage:** Provides monthly cost estimates for `aws_instance`, `aws_s3_bucket`, `aws_db_instance`, `aws_ebs_volume`, and `aws_lb`.
+- **Comprehensive Resource Coverage:** Provides monthly cost estimates for `aws_instance`, `aws_s3_bucket`, `aws_db_instance`, `aws_ebs_volume`, `aws_lb`, `aws_lambda_function`, and `aws_ecs_service`.
 - **Flexible Configuration:** The CLI can be configured via command-line arguments, environment variables, or a `.cloudcostguard.yml` file.
 
 For a more detailed explanation of the system design, see `ARCHITECTURE.md`.
