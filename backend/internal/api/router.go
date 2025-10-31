@@ -12,6 +12,7 @@ import (
 	"cloudcostguard/backend/internal/service"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/swaggo/http-swagger"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
 	"go.uber.org/zap"
 )
@@ -43,6 +44,7 @@ func NewRouter(estimatorSvc *service.Estimator, logger *zap.Logger, db *sql.DB, 
 	handler = middleware.RecoveryMiddleware(logger)(handler)
 	handler = middleware.LoggingMiddleware(logger)(handler)
 	handler = middleware.RequestIDMiddleware()(handler)
+	handler = otelhttp.NewHandler(handler, "http.server")
 
 	return handler
 }
