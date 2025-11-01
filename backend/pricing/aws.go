@@ -43,6 +43,8 @@ type ProductAttributes struct {
 	VolumeAPIName   string `json:"volumeApiName"`
 	// Group is the ELB group (e.g., "ELB-Application").
 	Group           string `json:"group"`
+	// StorageClass is the S3 storage class (e.g., "General Purpose").
+	StorageClass    string `json:"storageClass"`
 }
 
 // Term represents the pricing terms for a product.

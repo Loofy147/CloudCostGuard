@@ -114,8 +114,7 @@ func getResourceCost(rc *terraform.ResourceChange, attributes map[string]interfa
 		price, err := costForELB(attributes, priceList, region)
 		return &Cost{Value: price, Unit: "hourly"}, err
 	case "aws_s3_bucket":
-		// S3 pricing is per GB/month. For MVP, we use a flat $1.00/month baseline.
-		return &Cost{Value: 1.0, Unit: "monthly"}, nil
+		return costForS3(attributes, priceList, region, usage)
 	case "aws_nat_gateway":
 		price, err := costForNATGateway(attributes, priceList, region, usage)
 		return &Cost{Value: price, Unit: "hourly"}, err
@@ -296,6 +295,7 @@ func costForLambda(attributes map[string]interface{}, priceList *pricing.PriceLi
 	}
 
 	totalMonthlyCost := 0.0
+	breakdown := "No usage data provided"
 	if usage != nil {
 		// Free tier adjustment
 		monthlyRequests := float64(usage.LambdaMonthlyRequests)
@@ -312,18 +312,19 @@ func costForLambda(attributes map[string]interface{}, priceList *pricing.PriceLi
 		}
 
 		totalMonthlyCost = requestCost + gbSecondCost
+		breakdown = fmt.Sprintf("%d requests/month @ %dms avg duration", usage.LambdaMonthlyRequests, usage.LambdaAvgDurationMS)
 	}
 
 	return &Cost{
 		Value:    totalMonthlyCost,
 		Unit:     "monthly",
-		Breakdown: fmt.Sprintf("%d requests/month @ %dms avg duration", usage.LambdaMonthlyRequests, usage.LambdaAvgDurationMS),
+		Breakdown: breakdown,
 	}, nil
 }
-
 func costForECSService(rc *terraform.ResourceChange, attributes map[string]interface{}, priceList *pricing.PriceList, region string, plan *terraform.Plan) (*Cost, error) {
 	launchType, _ := attributes["launch_type"].(string)
 	if launchType != "FARGATE" {
+		// For EC2 launch type, cost is in the EC2 instances, not the service.
 		return &Cost{Value: 0, Unit: "monthly"}, nil
 	}
 
@@ -405,6 +406,51 @@ func parseFloat(val interface{}) (float64, error) {
 	default:
 		return 0, fmt.Errorf("unsupported type for float conversion")
 	}
+}
+
+func costForS3(attributes map[string]interface{}, priceList *pricing.PriceList, region string, usage *UsageEstimates) (*Cost, error) {
+	var storagePrice, putRequestPrice float64
+	var err error
+
+	for sku, product := range priceList.Products {
+		attr := product.Attributes
+		if attr.ServiceCode != "AmazonS3" || attr.Location != region {
+			continue
+		}
+
+		if attr.StorageClass == "General Purpose" && strings.Contains(attr.UsageType, "TimedStorage-ByteHrs") {
+			storagePrice, err = getPriceFromTerms(sku, priceList)
+			if err != nil {
+				return nil, fmt.Errorf("could not get storage price for S3: %w", err)
+			}
+		}
+
+		if attr.Group == "S3-Request-Tier1" {
+			putRequestPrice, err = getPriceFromTerms(sku, priceList)
+			if err != nil {
+				return nil, fmt.Errorf("could not get put request price for S3: %w", err)
+			}
+		}
+	}
+
+	if storagePrice == 0 || putRequestPrice == 0 {
+		return nil, fmt.Errorf("could not find pricing for S3")
+	}
+
+	totalMonthlyCost := 0.0
+	breakdown := "No usage data provided"
+	if usage != nil {
+		storageCost := float64(usage.S3StorageGB) * storagePrice
+		requestCost := (float64(usage.S3MonthlyPutRequests) / 1000) * putRequestPrice
+		totalMonthlyCost = storageCost + requestCost
+		breakdown = fmt.Sprintf("%d GB storage @ $%.4f/GB + %d PUT requests @ $%.4f/1000", usage.S3StorageGB, storagePrice, usage.S3MonthlyPutRequests, putRequestPrice)
+	}
+
+	return &Cost{
+		Value:    totalMonthlyCost,
+		Unit:     "monthly",
+		Breakdown: breakdown,
+	}, nil
 }
 
 func costForEKS(attributes map[string]interface{}, priceList *pricing.PriceList, region string) (*Cost, error) {

@@ -46,3 +46,26 @@ func TestFormatComment(t *testing.T) {
 		assert.NotContains(t, comment, "| Resource | Monthly Cost | Details |")
 	})
 }
+
+func TestFormatJSON(t *testing.T) {
+	t.Run("formats a JSON output with resources", func(t *testing.T) {
+		result := estimator.EstimationResponse{
+			TotalMonthlyCost: 123.45,
+			Currency:         "USD",
+			Resources: []estimator.ResourceCost{
+				{
+					Address:      "aws_instance.web",
+					MonthlyCost:  100.0,
+					CostBreakdown: "t2.micro @ $0.123/hr",
+				},
+			},
+		}
+
+		jsonOutput, err := formatJSON(result)
+		assert.NoError(t, err)
+
+		// A simple string containment check is sufficient to ensure it's valid JSON
+		assert.Contains(t, jsonOutput, `"total_monthly_cost": 123.45`)
+		assert.Contains(t, jsonOutput, `"address": "aws_instance.web"`)
+	})
+}

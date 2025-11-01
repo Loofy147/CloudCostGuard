@@ -15,10 +15,12 @@ import (
 )
 
 var region string
+var format string
 
 func init() {
 	rootCmd.AddCommand(analyzeCmd)
 	analyzeCmd.Flags().StringVar(&region, "region", "", "AWS region to use for pricing")
+	analyzeCmd.Flags().StringVar(&format, "format", "table", "Output format (table or json)")
 }
 
 // analyzeCmd represents the analyze command, which is the main entry point for the CLI tool.
@@ -114,13 +116,21 @@ var analyzeCmd = &cobra.Command{
 			return fmt.Errorf("failed to decode backend response: %w", err)
 		}
 
-		// 2. Post the comment to GitHub
-		comment := formatComment(result)
-		if err := github.PostComment(repo, prNumberStr, githubToken, comment); err != nil {
-			return fmt.Errorf("could not post comment to GitHub: %w", err)
+		// 2. Format and output the result
+		if format == "json" {
+			jsonOutput, err := formatJSON(result)
+			if err != nil {
+				return err
+			}
+			fmt.Println(jsonOutput)
+		} else {
+			comment := formatComment(result)
+			if err := github.PostComment(repo, prNumberStr, githubToken, comment); err != nil {
+				return fmt.Errorf("could not post comment to GitHub: %w", err)
+			}
+			fmt.Println("Successfully posted cost analysis to GitHub.")
 		}
 
-		fmt.Println("Successfully posted cost analysis to GitHub.")
 		return nil
 	},
 }
@@ -139,4 +149,12 @@ func formatComment(result estimator.EstimationResponse) string {
 	}
 
 	return builder.String()
+}
+
+func formatJSON(result estimator.EstimationResponse) (string, error) {
+	jsonBytes, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("could not marshal result to JSON: %w", err)
+	}
+	return string(jsonBytes), nil
 }

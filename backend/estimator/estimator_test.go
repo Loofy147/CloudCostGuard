@@ -188,6 +188,45 @@ func createMockPriceList() *pricing.PriceList {
 		},
 	}
 
+	// Mock S3 Standard Storage price: $0.023/GB-month
+	priceList.Products["s3-storage-sku"] = pricing.Product{
+		SKU: "s3-storage-sku",
+		Attributes: pricing.ProductAttributes{
+			ServiceCode:   "AmazonS3",
+			Location:      "US East (N. Virginia)",
+			StorageClass:  "General Purpose",
+			UsageType:     "TimedStorage-ByteHrs",
+		},
+	}
+	pd10 := pricing.PriceDimension{}
+	pd10.PricePerUnit.USD = "0.023"
+	priceList.Terms.OnDemand["s3-storage-sku"] = map[string]pricing.Term{
+		"term1": {
+			PriceDimensions: map[string]pricing.PriceDimension{
+				"dim1": pd10,
+			},
+		},
+	}
+
+	// Mock S3 Standard PUT/POST/LIST Requests price: $0.005/1000 requests
+	priceList.Products["s3-put-request-sku"] = pricing.Product{
+		SKU: "s3-put-request-sku",
+		Attributes: pricing.ProductAttributes{
+			ServiceCode:   "AmazonS3",
+			Location:      "US East (N. Virginia)",
+			Group:         "S3-Request-Tier1",
+		},
+	}
+	pd11 := pricing.PriceDimension{}
+	pd11.PricePerUnit.USD = "0.005"
+	priceList.Terms.OnDemand["s3-put-request-sku"] = map[string]pricing.Term{
+		"term1": {
+			PriceDimensions: map[string]pricing.PriceDimension{
+				"dim1": pd11,
+			},
+		},
+	}
+
 	return priceList
 }
 
@@ -494,9 +533,9 @@ func TestEstimate(t *testing.T) {
 		}
 
 		// vCPU cost: (1024 / 1024) * $0.04048/hr = $0.04048/hr
-		// Memory cost: (2048 / 1024) * $0.004445/hr = $0.00889/hr
-		// Total hourly cost per task: $0.04937
-		// Total monthly cost for 2 tasks: $0.04937 * 2 * 730 = $72.08
+		// Memory cost: (2048 / 1024) * $0.004445/hr = $0.00899/hr
+		// Total hourly cost per task: $0.04947
+		// Total monthly cost for 2 tasks: $0.04947 * 2 * 730 = $72.22
 		expectedCost := ((1 * 0.04048) + (2 * 0.004445)) * 2 * 730
 		result, err := Estimate(plan, mockPrices, usEastRegion, &UsageEstimates{})
 		assert.NoError(t, err)
@@ -587,5 +626,32 @@ func TestEstimate(t *testing.T) {
 		assert.NoError(t, err)
 		assert.InDelta(t, expectedCost, result.TotalMonthlyCost, 0.01)
 		assert.Len(t, result.Resources, 2)
+	})
+
+	t.Run("estimates cost for a new S3 bucket with usage", func(t *testing.T) {
+		plan := &terraform.Plan{
+			ResourceChanges: []*terraform.ResourceChange{
+				{
+					Address: "aws_s3_bucket.data",
+					Type:    "aws_s3_bucket",
+					Change:  terraform.Change{Actions: []string{"create"}},
+					After:   map[string]interface{}{},
+				},
+			},
+		}
+
+		usage := &UsageEstimates{
+			S3StorageGB:           500,
+			S3MonthlyPutRequests: 10000,
+		}
+
+		// Storage: 500 GB * $0.023/GB = $11.5
+		// Requests: 10000 / 1000 * $0.005 = $0.05
+		// Total: $11.55
+		expectedCost := (500 * 0.023) + (10 * 0.005)
+		result, err := Estimate(plan, mockPrices, usEastRegion, usage)
+		assert.NoError(t, err)
+		assert.InDelta(t, expectedCost, result.TotalMonthlyCost, 0.01)
+		assert.Len(t, result.Resources, 1)
 	})
 }

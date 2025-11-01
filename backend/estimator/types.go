@@ -15,6 +15,8 @@ type UsageEstimates struct {
 	NATGatewayGBProcessed int `yaml:"nat_gateway_gb_processed" json:"nat_gateway_gb_processed"`
 	LambdaMonthlyRequests int `yaml:"lambda_monthly_requests" json:"lambda_monthly_requests"`
 	LambdaAvgDurationMS   int `yaml:"lambda_avg_duration_ms" json:"lambda_avg_duration_ms"`
+	S3StorageGB           int `yaml:"s3_storage_gb" json:"s3_storage_gb"`
+	S3MonthlyPutRequests  int `yaml:"s3_monthly_put_requests" json:"s3_monthly_put_requests"`
 }
 
 // EstimationResponse defines the structure of the response body for the /estimate endpoint.
