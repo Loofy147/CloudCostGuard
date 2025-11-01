@@ -1,4 +1,3 @@
-// Package main is the entry point for the CloudCostGuard CLI.
 package main
 
 import (
@@ -16,12 +15,10 @@ import (
 )
 
 var region string
-var format string
 
 func init() {
 	rootCmd.AddCommand(analyzeCmd)
 	analyzeCmd.Flags().StringVar(&region, "region", "", "AWS region to use for pricing")
-	analyzeCmd.Flags().StringVar(&format, "format", "table", "Output format (table or json)")
 }
 
 // analyzeCmd represents the analyze command, which is the main entry point for the CLI tool.
@@ -117,32 +114,17 @@ var analyzeCmd = &cobra.Command{
 			return fmt.Errorf("failed to decode backend response: %w", err)
 		}
 
-		// 2. Format and output the result
-		if format == "json" {
-			jsonOutput, err := formatJSON(result)
-			if err != nil {
-				return err
-			}
-			fmt.Println(jsonOutput)
-		} else {
-			comment := formatComment(result)
-			if err := github.PostComment(repo, prNumberStr, githubToken, comment); err != nil {
-				return fmt.Errorf("could not post comment to GitHub: %w", err)
-			}
-			fmt.Println("Successfully posted cost analysis to GitHub.")
+		// 2. Post the comment to GitHub
+		comment := formatComment(result)
+		if err := github.PostComment(repo, prNumberStr, githubToken, comment); err != nil {
+			return fmt.Errorf("could not post comment to GitHub: %w", err)
 		}
 
+		fmt.Println("Successfully posted cost analysis to GitHub.")
 		return nil
 	},
 }
 
-// formatComment formats the cost estimation result as a Markdown table for a GitHub comment.
-//
-// Parameters:
-//   result: The cost estimation response from the backend.
-//
-// Returns:
-//   A string containing the formatted Markdown comment.
 func formatComment(result estimator.EstimationResponse) string {
 	var builder strings.Builder
 	builder.WriteString("## CloudCostGuard Analysis 🤖\n\n")
@@ -157,20 +139,4 @@ func formatComment(result estimator.EstimationResponse) string {
 	}
 
 	return builder.String()
-}
-
-// formatJSON formats the cost estimation result as a JSON string.
-//
-// Parameters:
-//   result: The cost estimation response from the backend.
-//
-// Returns:
-//   A string containing the formatted JSON output.
-//   An error if the result cannot be marshaled to JSON.
-func formatJSON(result estimator.EstimationResponse) (string, error) {
-	jsonBytes, err := json.MarshalIndent(result, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("could not marshal result to JSON: %w", err)
-	}
-	return string(jsonBytes), nil
 }

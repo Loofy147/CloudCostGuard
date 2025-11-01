@@ -37,6 +37,7 @@ CloudCostGuard currently supports the following AWS resources:
 - `aws_ecs_service` (Fargate launch type)
 - `aws_eks_cluster`
 - `aws_eks_node_group`
+- `aws_elasticache_cluster`
 
 ## Getting Started (Local Development)
 
