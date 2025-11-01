@@ -68,7 +68,7 @@ func TestEstimateHandler_Integration(t *testing.T) {
 
 	pricingRepo := postgres.NewPricingRepository(db, logger)
 	pricingCache := cache.NewPricingCache(pricingRepo, logger, time.Hour)
-	estimatorSvc := service.NewEstimator(pricingCache, logger)
+	estimatorSvc := service.NewEstimator(pricingCache, logger, db)
 	router := api.NewRouter(estimatorSvc, logger, db, pricingCache, apiConfig)
 
 	// Test with no data in DB

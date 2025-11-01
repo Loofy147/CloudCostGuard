@@ -54,7 +54,7 @@ func runServer() {
 	// Initialize services
 	pricingRepo := postgres.NewPricingRepository(db, logger)
 	pricingCache := cache.NewPricingCache(pricingRepo, logger, cfg.Cache.RefreshInterval)
-	estimatorSvc := service.NewEstimator(pricingCache, logger)
+	estimatorSvc := service.NewEstimator(pricingCache, logger, db)
 	pricingStorer := pricing.NewPostgresPricingDataStorer(db)
 	pricingSvc := pricing.NewService(logger, pricingStorer)
 	pricingSvc.Start(context.Background())

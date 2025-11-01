@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"cloudcostguard/backend/estimator"
 	"cloudcostguard/internal/config"
@@ -15,10 +16,13 @@ import (
 )
 
 var region string
+var format string
 
 func init() {
 	rootCmd.AddCommand(analyzeCmd)
+	rootCmd.AddCommand(historyCmd)
 	analyzeCmd.Flags().StringVar(&region, "region", "", "AWS region to use for pricing")
+	analyzeCmd.Flags().StringVar(&format, "format", "table", "Output format (table or json)")
 }
 
 // analyzeCmd represents the analyze command, which is the main entry point for the CLI tool.
@@ -139,4 +143,51 @@ func formatComment(result estimator.EstimationResponse) string {
 	}
 
 	return builder.String()
+}
+
+var historyCmd = &cobra.Command{
+	Use:   "history [REPO]",
+	Short: "Shows the cost estimation history for a repository.",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		repo := args[0]
+
+		backendURL := os.Getenv("CCG_BACKEND_URL")
+		if backendURL == "" {
+			backendURL = "http://localhost:8080"
+		}
+
+		url := fmt.Sprintf("%s/history/%s", backendURL, repo)
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			return fmt.Errorf("failed to create request to backend: %w", err)
+		}
+
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			return fmt.Errorf("failed to call backend: %w", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("backend returned an error: %s", resp.Status)
+		}
+
+		var estimations []struct {
+			PRNumber        int       `json:"pr_number"`
+			TotalMonthlyCost float64   `json:"total_monthly_cost"`
+			CreatedAt       time.Time `json:"created_at"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&estimations); err != nil {
+			return fmt.Errorf("failed to decode backend response: %w", err)
+		}
+
+		fmt.Printf("Cost estimation history for %s:\n\n", repo)
+		for _, e := range estimations {
+			fmt.Printf("- PR #%d: $%.2f (estimated on %s)\n", e.PRNumber, e.TotalMonthlyCost, e.CreatedAt.Format(time.RFC822))
+		}
+
+		return nil
+	},
 }
