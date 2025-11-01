@@ -169,6 +169,25 @@ func createMockPriceList() *pricing.PriceList {
 		},
 	}
 
+	// Mock EKS Control Plane price: $0.10/hr
+	priceList.Products["eks-control-plane-sku"] = pricing.Product{
+		SKU: "eks-control-plane-sku",
+		Attributes: pricing.ProductAttributes{
+			ServiceCode: "AmazonEKS",
+			Location:    "US East (N. Virginia)",
+			UsageType:   "EKS-Hours:perCluster",
+		},
+	}
+	pd9 := pricing.PriceDimension{}
+	pd9.PricePerUnit.USD = "0.10"
+	priceList.Terms.OnDemand["eks-control-plane-sku"] = map[string]pricing.Term{
+		"term1": {
+			PriceDimensions: map[string]pricing.PriceDimension{
+				"dim1": pd9,
+			},
+		},
+	}
+
 	return priceList
 }
 
@@ -508,8 +527,8 @@ func TestEstimate(t *testing.T) {
 			},
 		}
 
-		// Expected cost: $0, since EC2 launch type is not yet supported.
-		expectedCost := 0.0
+		// Expected cost: 1 t2.micro instance * $10/hr * 730 hrs/month = $7300
+		expectedCost := 10.0 * 730
 		result, err := Estimate(plan, mockPrices, usEastRegion, &UsageEstimates{})
 		assert.NoError(t, err)
 		assert.InDelta(t, expectedCost, result.TotalMonthlyCost, 0.01)
@@ -533,5 +552,40 @@ func TestEstimate(t *testing.T) {
 		result, err := Estimate(plan, mockPrices, usEastRegion, &UsageEstimates{})
 		assert.NoError(t, err)
 		assert.Equal(t, 0.0, result.TotalMonthlyCost)
+	})
+
+	t.Run("estimates cost for a new EKS cluster with a node group", func(t *testing.T) {
+		plan := &terraform.Plan{
+			ResourceChanges: []*terraform.ResourceChange{
+				{
+					Address: "aws_eks_cluster.main",
+					Type:    "aws_eks_cluster",
+					Change:  terraform.Change{Actions: []string{"create"}},
+					After:   map[string]interface{}{},
+				},
+				{
+					Address: "aws_eks_node_group.workers",
+					Type:    "aws_eks_node_group",
+					Change:  terraform.Change{Actions: []string{"create"}},
+					After: map[string]interface{}{
+						"instance_types": []interface{}{"t2.micro"},
+						"scaling_config": []interface{}{
+							map[string]interface{}{
+								"desired_size": float64(3),
+							},
+						},
+					},
+				},
+			},
+		}
+
+		// EKS Control Plane: $0.10/hr * 730 hrs/month = $73
+		// EKS Node Group: 3 * t2.micro ($10/hr) * 730 hrs/month = $21900
+		// Total: $21973
+		expectedCost := (0.10 * 730) + (3 * 10.0 * 730)
+		result, err := Estimate(plan, mockPrices, usEastRegion, &UsageEstimates{})
+		assert.NoError(t, err)
+		assert.InDelta(t, expectedCost, result.TotalMonthlyCost, 0.01)
+		assert.Len(t, result.Resources, 2)
 	})
 }

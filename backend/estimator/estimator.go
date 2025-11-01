@@ -103,19 +103,7 @@ func getResourceCost(rc *terraform.ResourceChange, attributes map[string]interfa
 
 	switch rc.Type {
 	case "aws_instance":
-		// EC2 instance cost is handled as part of other resources (e.g., ECS with EC2 launch type)
-		// to avoid double-counting. A standalone EC2 instance will be estimated directly.
-		isStandalone := true
-		for _, otherRc := range plan.ResourceChanges {
-			if otherRc.Type == "aws_ecs_service" {
-				isStandalone = false
-				break
-			}
-		}
-		if isStandalone {
-			return costForEC2(attributes, priceList, region)
-		}
-		return &Cost{Value: 0, Unit: "monthly"}, nil
+		return costForEC2(attributes, priceList, region)
 	case "aws_db_instance":
 		price, err := costForRDS(attributes, priceList, region)
 		return &Cost{Value: price, Unit: "hourly"}, err
@@ -138,6 +126,10 @@ func getResourceCost(rc *terraform.ResourceChange, attributes map[string]interfa
 	case "aws_ecs_task_definition":
 		// Cost is calculated as part of the ECS service, not standalone.
 		return &Cost{Value: 0, Unit: "monthly"}, nil
+	case "aws_eks_cluster":
+		return costForEKS(attributes, priceList, region)
+	case "aws_eks_node_group":
+		return costForEKSNodeGroup(attributes, priceList, region)
 	default:
 		return nil, fmt.Errorf("unsupported resource type: %s", rc.Type)
 	}
@@ -413,4 +405,51 @@ func parseFloat(val interface{}) (float64, error) {
 	default:
 		return 0, fmt.Errorf("unsupported type for float conversion")
 	}
+}
+
+func costForEKS(attributes map[string]interface{}, priceList *pricing.PriceList, region string) (*Cost, error) {
+	for sku, product := range priceList.Products {
+		attr := product.Attributes
+		if attr.ServiceCode == "AmazonEKS" && attr.Location == region && strings.Contains(attr.UsageType, "EKS-Hours:perCluster") {
+			price, err := getPriceFromTerms(sku, priceList)
+			if err != nil {
+				return nil, err
+			}
+			return &Cost{
+				Value:    price,
+				Unit:     "hourly",
+				Breakdown: fmt.Sprintf("EKS Control Plane @ $%.4f/hr", price),
+			}, nil
+		}
+	}
+	return nil, fmt.Errorf("could not find pricing for EKS control plane in region: %s", region)
+}
+
+func costForEKSNodeGroup(attributes map[string]interface{}, priceList *pricing.PriceList, region string) (*Cost, error) {
+	instanceTypes, ok := attributes["instance_types"].([]interface{})
+	if !ok || len(instanceTypes) == 0 {
+		return nil, fmt.Errorf("missing instance_types")
+	}
+	instanceType := instanceTypes[0].(string)
+
+	scalingConfig, ok := attributes["scaling_config"].([]interface{})
+	if !ok || len(scalingConfig) == 0 {
+		return nil, fmt.Errorf("missing scaling_config")
+	}
+	desiredSize, ok := scalingConfig[0].(map[string]interface{})["desired_size"].(float64)
+	if !ok {
+		return nil, fmt.Errorf("missing desired_size")
+	}
+
+	ec2Cost, err := costForEC2(map[string]interface{}{"instance_type": instanceType}, priceList, region)
+	if err != nil {
+		return nil, err
+	}
+
+	totalCost := ec2Cost.Value * desiredSize
+	return &Cost{
+		Value:    totalCost,
+		Unit:     "hourly",
+		Breakdown: fmt.Sprintf("%d x %s @ $%.4f/hr", int(desiredSize), instanceType, ec2Cost.Value),
+	}, nil
 }
