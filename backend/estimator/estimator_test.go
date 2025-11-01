@@ -131,6 +131,44 @@ func createMockPriceList() *pricing.PriceList {
 		},
 	}
 
+	// Mock Fargate vCPU price: $0.04048/hr
+	priceList.Products["fargate-vcpu-sku"] = pricing.Product{
+		SKU: "fargate-vcpu-sku",
+		Attributes: pricing.ProductAttributes{
+			ServiceCode: "AmazonECS",
+			Location:    "US East (N. Virginia)",
+			UsageType:   "Fargate-vCPU-Hours:perCPU",
+		},
+	}
+	pd7 := pricing.PriceDimension{}
+	pd7.PricePerUnit.USD = "0.04048"
+	priceList.Terms.OnDemand["fargate-vcpu-sku"] = map[string]pricing.Term{
+		"term1": {
+			PriceDimensions: map[string]pricing.PriceDimension{
+				"dim1": pd7,
+			},
+		},
+	}
+
+	// Mock Fargate Memory price: $0.004445/GB-hr
+	priceList.Products["fargate-memory-sku"] = pricing.Product{
+		SKU: "fargate-memory-sku",
+		Attributes: pricing.ProductAttributes{
+			ServiceCode: "AmazonECS",
+			Location:    "US East (N. Virginia)",
+			UsageType:   "Fargate-GB-Hours:perGB",
+		},
+	}
+	pd8 := pricing.PriceDimension{}
+	pd8.PricePerUnit.USD = "0.004445"
+	priceList.Terms.OnDemand["fargate-memory-sku"] = map[string]pricing.Term{
+		"term1": {
+			PriceDimensions: map[string]pricing.PriceDimension{
+				"dim1": pd8,
+			},
+		},
+	}
+
 	return priceList
 }
 
@@ -410,5 +448,90 @@ func TestEstimate(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Len(t, resp.Resources, 1)
 		assert.InDelta(t, 1.87, resp.Resources[0].MonthlyCost, 0.01)
+	})
+
+	t.Run("estimates cost for a new ECS service on Fargate", func(t *testing.T) {
+		plan := &terraform.Plan{
+			ResourceChanges: []*terraform.ResourceChange{
+				{
+					Address: "aws_ecs_service.web",
+					Type:    "aws_ecs_service",
+					Change:  terraform.Change{Actions: []string{"create"}},
+					After: map[string]interface{}{
+						"desired_count":   float64(2),
+						"launch_type":     "FARGATE",
+						"task_definition": "aws_ecs_task_definition.web",
+					},
+				},
+				{
+					Address: "aws_ecs_task_definition.web",
+					Type:    "aws_ecs_task_definition",
+					After: map[string]interface{}{
+						"cpu":    "1024",
+						"memory": "2048",
+					},
+				},
+			},
+		}
+
+		// vCPU cost: (1024 / 1024) * $0.04048/hr = $0.04048/hr
+		// Memory cost: (2048 / 1024) * $0.004445/hr = $0.00889/hr
+		// Total hourly cost per task: $0.04937
+		// Total monthly cost for 2 tasks: $0.04937 * 2 * 730 = $72.08
+		expectedCost := ((1 * 0.04048) + (2 * 0.004445)) * 2 * 730
+		result, err := Estimate(plan, mockPrices, usEastRegion, &UsageEstimates{})
+		assert.NoError(t, err)
+		assert.InDelta(t, expectedCost, result.TotalMonthlyCost, 0.01)
+		assert.Len(t, result.Resources, 1)
+	})
+
+	t.Run("estimates cost for a new ECS service on EC2", func(t *testing.T) {
+		plan := &terraform.Plan{
+			ResourceChanges: []*terraform.ResourceChange{
+				{
+					Address: "aws_ecs_service.web",
+					Type:    "aws_ecs_service",
+					Change:  terraform.Change{Actions: []string{"create"}},
+					After: map[string]interface{}{
+						"desired_count": float64(1),
+						"launch_type":   "EC2",
+					},
+				},
+				{
+					Address: "aws_instance.ecs_instance",
+					Type:    "aws_instance",
+					Change:  terraform.Change{Actions: []string{"create"}},
+					After: map[string]interface{}{
+						"instance_type": "t2.micro",
+					},
+				},
+			},
+		}
+
+		// Expected cost: $0, since EC2 launch type is not yet supported.
+		expectedCost := 0.0
+		result, err := Estimate(plan, mockPrices, usEastRegion, &UsageEstimates{})
+		assert.NoError(t, err)
+		assert.InDelta(t, expectedCost, result.TotalMonthlyCost, 0.01)
+	})
+
+	t.Run("does not double-count ECS task definitions", func(t *testing.T) {
+		plan := &terraform.Plan{
+			ResourceChanges: []*terraform.ResourceChange{
+				{
+					Address: "aws_ecs_task_definition.web",
+					Type:    "aws_ecs_task_definition",
+					Change:  terraform.Change{Actions: []string{"create"}},
+					After: map[string]interface{}{
+						"cpu":    "1024",
+						"memory": "2048",
+					},
+				},
+			},
+		}
+
+		result, err := Estimate(plan, mockPrices, usEastRegion, &UsageEstimates{})
+		assert.NoError(t, err)
+		assert.Equal(t, 0.0, result.TotalMonthlyCost)
 	})
 }

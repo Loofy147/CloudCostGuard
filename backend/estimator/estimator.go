@@ -103,7 +103,19 @@ func getResourceCost(rc *terraform.ResourceChange, attributes map[string]interfa
 
 	switch rc.Type {
 	case "aws_instance":
-		return costForEC2(attributes, priceList, region)
+		// EC2 instance cost is handled as part of other resources (e.g., ECS with EC2 launch type)
+		// to avoid double-counting. A standalone EC2 instance will be estimated directly.
+		isStandalone := true
+		for _, otherRc := range plan.ResourceChanges {
+			if otherRc.Type == "aws_ecs_service" {
+				isStandalone = false
+				break
+			}
+		}
+		if isStandalone {
+			return costForEC2(attributes, priceList, region)
+		}
+		return &Cost{Value: 0, Unit: "monthly"}, nil
 	case "aws_db_instance":
 		price, err := costForRDS(attributes, priceList, region)
 		return &Cost{Value: price, Unit: "hourly"}, err
@@ -123,6 +135,9 @@ func getResourceCost(rc *terraform.ResourceChange, attributes map[string]interfa
 		return costForLambda(attributes, priceList, region, usage)
 	case "aws_ecs_service":
 		return costForECSService(rc, attributes, priceList, region, plan)
+	case "aws_ecs_task_definition":
+		// Cost is calculated as part of the ECS service, not standalone.
+		return &Cost{Value: 0, Unit: "monthly"}, nil
 	default:
 		return nil, fmt.Errorf("unsupported resource type: %s", rc.Type)
 	}
@@ -315,6 +330,11 @@ func costForLambda(attributes map[string]interface{}, priceList *pricing.PriceLi
 }
 
 func costForECSService(rc *terraform.ResourceChange, attributes map[string]interface{}, priceList *pricing.PriceList, region string, plan *terraform.Plan) (*Cost, error) {
+	launchType, _ := attributes["launch_type"].(string)
+	if launchType != "FARGATE" {
+		return &Cost{Value: 0, Unit: "monthly"}, nil
+	}
+
 	desiredCount, _ := attributes["desired_count"].(float64)
 	if desiredCount == 0 {
 		desiredCount = 1
@@ -322,7 +342,7 @@ func costForECSService(rc *terraform.ResourceChange, attributes map[string]inter
 
 	taskDefinitionArn, _ := attributes["task_definition"].(string)
 	if taskDefinitionArn == "" {
-		return nil, fmt.Errorf("missing task_definition")
+		return nil, fmt.Errorf("missing task_definition for Fargate service")
 	}
 
 	var taskDef *terraform.ResourceChange
@@ -337,11 +357,17 @@ func costForECSService(rc *terraform.ResourceChange, attributes map[string]inter
 		return nil, fmt.Errorf("could not find task definition: %s", taskDefinitionArn)
 	}
 
-	cpu, _ := taskDef.After["cpu"].(float64)
-	memory, _ := taskDef.After["memory"].(float64)
+	cpu, err := parseFloat(taskDef.After["cpu"])
+	if err != nil {
+		return nil, fmt.Errorf("could not parse cpu from task definition: %w", err)
+	}
+
+	memory, err := parseFloat(taskDef.After["memory"])
+	if err != nil {
+		return nil, fmt.Errorf("could not parse memory from task definition: %w", err)
+	}
 
 	var vcpuPrice, memoryPrice float64
-	var err error
 
 	for sku, product := range priceList.Products {
 		attr := product.Attributes
@@ -376,4 +402,15 @@ func costForECSService(rc *terraform.ResourceChange, attributes map[string]inter
 		Unit:     "hourly",
 		Breakdown: fmt.Sprintf("%d tasks @ %.2f vCPU / %.2f GB", int(desiredCount), cpu/1024, memory/1024),
 	}, nil
+}
+
+func parseFloat(val interface{}) (float64, error) {
+	switch v := val.(type) {
+	case float64:
+		return v, nil
+	case string:
+		return strconv.ParseFloat(v, 64)
+	default:
+		return 0, fmt.Errorf("unsupported type for float conversion")
+	}
 }
