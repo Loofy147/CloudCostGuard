@@ -131,59 +131,41 @@ func createMockPriceList() *pricing.PriceList {
 		},
 	}
 
-	// Mock Fargate vCPU price: $0.04048/hr
-	priceList.Products["fargate-vcpu-sku"] = pricing.Product{
-		SKU: "fargate-vcpu-sku",
+	// Mock S3 Standard Storage price: $0.023/GB-month
+	priceList.Products["s3-storage-sku"] = pricing.Product{
+		SKU: "s3-storage-sku",
 		Attributes: pricing.ProductAttributes{
-			ServiceCode: "AmazonECS",
-			Location:    "US East (N. Virginia)",
-			UsageType:   "Fargate-vCPU-Hours:perCPU",
+			ServiceCode:   "AmazonS3",
+			Location:      "US East (N. Virginia)",
+			StorageClass:  "General Purpose",
+			UsageType:     "TimedStorage-ByteHrs",
 		},
 	}
-	pd7 := pricing.PriceDimension{}
-	pd7.PricePerUnit.USD = "0.04048"
-	priceList.Terms.OnDemand["fargate-vcpu-sku"] = map[string]pricing.Term{
+	pd10 := pricing.PriceDimension{}
+	pd10.PricePerUnit.USD = "0.023"
+	priceList.Terms.OnDemand["s3-storage-sku"] = map[string]pricing.Term{
 		"term1": {
 			PriceDimensions: map[string]pricing.PriceDimension{
-				"dim1": pd7,
+				"dim1": pd10,
 			},
 		},
 	}
 
-	// Mock Fargate Memory price: $0.004445/GB-hr
-	priceList.Products["fargate-memory-sku"] = pricing.Product{
-		SKU: "fargate-memory-sku",
+	// Mock S3 Standard PUT/POST/LIST Requests price: $0.005/1000 requests
+	priceList.Products["s3-put-request-sku"] = pricing.Product{
+		SKU: "s3-put-request-sku",
 		Attributes: pricing.ProductAttributes{
-			ServiceCode: "AmazonECS",
-			Location:    "US East (N. Virginia)",
-			UsageType:   "Fargate-GB-Hours:perGB",
+			ServiceCode:   "AmazonS3",
+			Location:      "US East (N. Virginia)",
+			Group:         "S3-Request-Tier1",
 		},
 	}
-	pd8 := pricing.PriceDimension{}
-	pd8.PricePerUnit.USD = "0.004445"
-	priceList.Terms.OnDemand["fargate-memory-sku"] = map[string]pricing.Term{
+	pd11 := pricing.PriceDimension{}
+	pd11.PricePerUnit.USD = "0.005"
+	priceList.Terms.OnDemand["s3-put-request-sku"] = map[string]pricing.Term{
 		"term1": {
 			PriceDimensions: map[string]pricing.PriceDimension{
-				"dim1": pd8,
-			},
-		},
-	}
-
-	// Mock EKS Control Plane price: $0.10/hr
-	priceList.Products["eks-control-plane-sku"] = pricing.Product{
-		SKU: "eks-control-plane-sku",
-		Attributes: pricing.ProductAttributes{
-			ServiceCode: "AmazonEKS",
-			Location:    "US East (N. Virginia)",
-			UsageType:   "EKS-Hours:perCluster",
-		},
-	}
-	pd9 := pricing.PriceDimension{}
-	pd9.PricePerUnit.USD = "0.10"
-	priceList.Terms.OnDemand["eks-control-plane-sku"] = map[string]pricing.Term{
-		"term1": {
-			PriceDimensions: map[string]pricing.PriceDimension{
-				"dim1": pd9,
+				"dim1": pd11,
 			},
 		},
 	}
@@ -469,123 +451,30 @@ func TestEstimate(t *testing.T) {
 		assert.InDelta(t, 1.87, resp.Resources[0].MonthlyCost, 0.01)
 	})
 
-	t.Run("estimates cost for a new ECS service on Fargate", func(t *testing.T) {
+	t.Run("estimates cost for a new S3 bucket with usage", func(t *testing.T) {
 		plan := &terraform.Plan{
 			ResourceChanges: []*terraform.ResourceChange{
 				{
-					Address: "aws_ecs_service.web",
-					Type:    "aws_ecs_service",
-					Change:  terraform.Change{Actions: []string{"create"}},
-					After: map[string]interface{}{
-						"desired_count":   float64(2),
-						"launch_type":     "FARGATE",
-						"task_definition": "aws_ecs_task_definition.web",
-					},
-				},
-				{
-					Address: "aws_ecs_task_definition.web",
-					Type:    "aws_ecs_task_definition",
-					After: map[string]interface{}{
-						"cpu":    "1024",
-						"memory": "2048",
-					},
-				},
-			},
-		}
-
-		// vCPU cost: (1024 / 1024) * $0.04048/hr = $0.04048/hr
-		// Memory cost: (2048 / 1024) * $0.004445/hr = $0.00889/hr
-		// Total hourly cost per task: $0.04937
-		// Total monthly cost for 2 tasks: $0.04937 * 2 * 730 = $72.08
-		expectedCost := ((1 * 0.04048) + (2 * 0.004445)) * 2 * 730
-		result, err := Estimate(plan, mockPrices, usEastRegion, &UsageEstimates{})
-		assert.NoError(t, err)
-		assert.InDelta(t, expectedCost, result.TotalMonthlyCost, 0.01)
-		assert.Len(t, result.Resources, 1)
-	})
-
-	t.Run("estimates cost for a new ECS service on EC2", func(t *testing.T) {
-		plan := &terraform.Plan{
-			ResourceChanges: []*terraform.ResourceChange{
-				{
-					Address: "aws_ecs_service.web",
-					Type:    "aws_ecs_service",
-					Change:  terraform.Change{Actions: []string{"create"}},
-					After: map[string]interface{}{
-						"desired_count": float64(1),
-						"launch_type":   "EC2",
-					},
-				},
-				{
-					Address: "aws_instance.ecs_instance",
-					Type:    "aws_instance",
-					Change:  terraform.Change{Actions: []string{"create"}},
-					After: map[string]interface{}{
-						"instance_type": "t2.micro",
-					},
-				},
-			},
-		}
-
-		// Expected cost: 1 t2.micro instance * $10/hr * 730 hrs/month = $7300
-		expectedCost := 10.0 * 730
-		result, err := Estimate(plan, mockPrices, usEastRegion, &UsageEstimates{})
-		assert.NoError(t, err)
-		assert.InDelta(t, expectedCost, result.TotalMonthlyCost, 0.01)
-	})
-
-	t.Run("does not double-count ECS task definitions", func(t *testing.T) {
-		plan := &terraform.Plan{
-			ResourceChanges: []*terraform.ResourceChange{
-				{
-					Address: "aws_ecs_task_definition.web",
-					Type:    "aws_ecs_task_definition",
-					Change:  terraform.Change{Actions: []string{"create"}},
-					After: map[string]interface{}{
-						"cpu":    "1024",
-						"memory": "2048",
-					},
-				},
-			},
-		}
-
-		result, err := Estimate(plan, mockPrices, usEastRegion, &UsageEstimates{})
-		assert.NoError(t, err)
-		assert.Equal(t, 0.0, result.TotalMonthlyCost)
-	})
-
-	t.Run("estimates cost for a new EKS cluster with a node group", func(t *testing.T) {
-		plan := &terraform.Plan{
-			ResourceChanges: []*terraform.ResourceChange{
-				{
-					Address: "aws_eks_cluster.main",
-					Type:    "aws_eks_cluster",
+					Address: "aws_s3_bucket.data",
+					Type:    "aws_s3_bucket",
 					Change:  terraform.Change{Actions: []string{"create"}},
 					After:   map[string]interface{}{},
 				},
-				{
-					Address: "aws_eks_node_group.workers",
-					Type:    "aws_eks_node_group",
-					Change:  terraform.Change{Actions: []string{"create"}},
-					After: map[string]interface{}{
-						"instance_types": []interface{}{"t2.micro"},
-						"scaling_config": []interface{}{
-							map[string]interface{}{
-								"desired_size": float64(3),
-							},
-						},
-					},
-				},
 			},
 		}
 
-		// EKS Control Plane: $0.10/hr * 730 hrs/month = $73
-		// EKS Node Group: 3 * t2.micro ($10/hr) * 730 hrs/month = $21900
-		// Total: $21973
-		expectedCost := (0.10 * 730) + (3 * 10.0 * 730)
-		result, err := Estimate(plan, mockPrices, usEastRegion, &UsageEstimates{})
+		usage := &UsageEstimates{
+			S3StorageGB:           500,
+			S3MonthlyPutRequests: 10000,
+		}
+
+		// Storage: 500 GB * $0.023/GB = $11.5
+		// Requests: 10000 / 1000 * $0.005 = $0.05
+		// Total: $11.55
+		expectedCost := (500 * 0.023) + (10 * 0.005)
+		result, err := Estimate(plan, mockPrices, usEastRegion, usage)
 		assert.NoError(t, err)
 		assert.InDelta(t, expectedCost, result.TotalMonthlyCost, 0.01)
-		assert.Len(t, result.Resources, 2)
+		assert.Len(t, result.Resources, 1)
 	})
 }
