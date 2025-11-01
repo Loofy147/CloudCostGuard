@@ -1,3 +1,4 @@
+// Package main is the entry point for the CloudCostGuard CLI.
 package main
 
 import (
@@ -135,6 +136,13 @@ var analyzeCmd = &cobra.Command{
 	},
 }
 
+// formatComment formats the cost estimation result as a Markdown table for a GitHub comment.
+//
+// Parameters:
+//   result: The cost estimation response from the backend.
+//
+// Returns:
+//   A string containing the formatted Markdown comment.
 func formatComment(result estimator.EstimationResponse) string {
 	var builder strings.Builder
 	builder.WriteString("## CloudCostGuard Analysis 🤖\n\n")
@@ -151,6 +159,14 @@ func formatComment(result estimator.EstimationResponse) string {
 	return builder.String()
 }
 
+// formatJSON formats the cost estimation result as a JSON string.
+//
+// Parameters:
+//   result: The cost estimation response from the backend.
+//
+// Returns:
+//   A string containing the formatted JSON output.
+//   An error if the result cannot be marshaled to JSON.
 func formatJSON(result estimator.EstimationResponse) (string, error) {
 	jsonBytes, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {

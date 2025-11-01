@@ -1,3 +1,4 @@
+// Package pricing provides the logic for fetching and managing AWS pricing data.
 package pricing
 
 import (

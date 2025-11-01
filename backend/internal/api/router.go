@@ -1,3 +1,4 @@
+// Package api provides the HTTP routing for the backend service.
 package api
 
 import (
@@ -17,6 +18,17 @@ import (
 	"go.uber.org/zap"
 )
 
+// NewRouter creates a new http.Handler with all the routes and middleware configured.
+//
+// Parameters:
+//   estimatorSvc: The estimator service.
+//   logger: The logger.
+//   db: The database connection.
+//   cache: The pricing cache.
+//   apiConfig: The API configuration.
+//
+// Returns:
+//   An http.Handler with all the routes and middleware configured.
 func NewRouter(estimatorSvc *service.Estimator, logger *zap.Logger, db *sql.DB, cache *cache.PricingCache, apiConfig config.APIConfig) http.Handler {
 	mux := http.NewServeMux()
 

@@ -227,6 +227,25 @@ func createMockPriceList() *pricing.PriceList {
 		},
 	}
 
+	// Mock ElastiCache cache.t2.micro price: $0.017/hr
+	priceList.Products["elasticache-t2-micro-sku"] = pricing.Product{
+		SKU: "elasticache-t2-micro-sku",
+		Attributes: pricing.ProductAttributes{
+			ServiceCode: "AmazonElastiCache",
+			InstanceType: "cache.t2.micro",
+			Location:     "US East (N. Virginia)",
+		},
+	}
+	pd12 := pricing.PriceDimension{}
+	pd12.PricePerUnit.USD = "0.017"
+	priceList.Terms.OnDemand["elasticache-t2-micro-sku"] = map[string]pricing.Term{
+		"term1": {
+			PriceDimensions: map[string]pricing.PriceDimension{
+				"dim1": pd12,
+			},
+		},
+	}
+
 	return priceList
 }
 
@@ -650,6 +669,29 @@ func TestEstimate(t *testing.T) {
 		// Total: $11.55
 		expectedCost := (500 * 0.023) + (10 * 0.005)
 		result, err := Estimate(plan, mockPrices, usEastRegion, usage)
+		assert.NoError(t, err)
+		assert.InDelta(t, expectedCost, result.TotalMonthlyCost, 0.01)
+		assert.Len(t, result.Resources, 1)
+	})
+
+	t.Run("estimates cost for a new ElastiCache cluster", func(t *testing.T) {
+		plan := &terraform.Plan{
+			ResourceChanges: []*terraform.ResourceChange{
+				{
+					Address: "aws_elasticache_cluster.redis",
+					Type:    "aws_elasticache_cluster",
+					Change:  terraform.Change{Actions: []string{"create"}},
+					After: map[string]interface{}{
+						"node_type":      "cache.t2.micro",
+						"num_cache_nodes": float64(2),
+					},
+				},
+			},
+		}
+
+		// ElastiCache: 2 * cache.t2.micro ($0.017/hr) * 730 hrs/month = $24.82
+		expectedCost := 2 * 0.017 * 730
+		result, err := Estimate(plan, mockPrices, usEastRegion, &UsageEstimates{})
 		assert.NoError(t, err)
 		assert.InDelta(t, expectedCost, result.TotalMonthlyCost, 0.01)
 		assert.Len(t, result.Resources, 1)

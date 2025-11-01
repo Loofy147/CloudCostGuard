@@ -1,3 +1,4 @@
+// Package handlers provides the HTTP handlers for the API.
 package handlers
 
 import (
@@ -11,11 +12,20 @@ import (
 	"go.uber.org/zap"
 )
 
+// EstimateHandler is the HTTP handler for the /estimate endpoint.
 type EstimateHandler struct {
 	estimator *service.Estimator
 	logger    *zap.Logger
 }
 
+// NewEstimateHandler creates a new EstimateHandler.
+//
+// Parameters:
+//   estimator: The estimator service.
+//   logger: The logger.
+//
+// Returns:
+//   A pointer to a new EstimateHandler.
 func NewEstimateHandler(estimator *service.Estimator, logger *zap.Logger) *EstimateHandler {
 	return &EstimateHandler{
 		estimator: estimator,
@@ -23,6 +33,12 @@ func NewEstimateHandler(estimator *service.Estimator, logger *zap.Logger) *Estim
 	}
 }
 
+// ServeHTTP handles the HTTP request for the /estimate endpoint.
+// It decodes the request body, calls the estimator service, and encodes the response.
+//
+// Parameters:
+//   w: The http.ResponseWriter to write the response to.
+//   r: The http.Request to handle.
 func (h *EstimateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Only POST method is allowed", http.StatusMethodNotAllowed)
@@ -67,6 +83,15 @@ func (h *EstimateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// validatePlan validates a Terraform plan.
+// It checks that the plan is not nil, that it does not have too many resources,
+// and that the resource addresses are not empty or too long.
+//
+// Parameters:
+//   plan: The Terraform plan to validate.
+//
+// Returns:
+//   An error if the plan is invalid, nil otherwise.
 func validatePlan(plan *terraform.Plan) error {
 	if plan == nil {
 		return fmt.Errorf("plan cannot be nil")

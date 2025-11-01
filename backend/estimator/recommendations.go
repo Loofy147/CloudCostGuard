@@ -1,3 +1,4 @@
+// Package estimator provides the core logic for estimating the cost of Terraform plans.
 package estimator
 
 import (
@@ -7,7 +8,17 @@ import (
 )
 
 // GenerateRecommendations analyzes a Terraform plan and suggests cost-saving optimizations.
+//
+// Parameters:
+//   plan: The Terraform plan to analyze.
+//   usage: Usage estimates for various resources.
+//
+// Returns:
+//   A slice of strings, where each string is a cost-saving recommendation.
 func GenerateRecommendations(plan *terraform.Plan, usage *UsageEstimates) []string {
+	if plan == nil {
+		return nil
+	}
 	var recommendations []string
 	resourceCounts := make(map[string]int)
 	for _, rc := range plan.ResourceChanges {
@@ -28,6 +39,7 @@ func GenerateRecommendations(plan *terraform.Plan, usage *UsageEstimates) []stri
 	return recommendations
 }
 
+// checkNATGateway checks for potential cost savings on a NAT Gateway.
 func checkNATGateway(rc *terraform.ResourceChange, usage *UsageEstimates) []string {
 	if usage != nil && usage.NATGatewayGBProcessed > 100 { // Recommend if over 100GB processed
 		return []string{"💡 NAT Gateway data transfer is expensive - consider VPC endpoints for AWS services"}
@@ -35,6 +47,7 @@ func checkNATGateway(rc *terraform.ResourceChange, usage *UsageEstimates) []stri
 	return nil
 }
 
+// checkDBInstance checks for potential cost savings on an RDS instance.
 func checkDBInstance(rc *terraform.ResourceChange) []string {
 	var recs []string
 	if multiAZ, ok := rc.After["multi_az"].(bool); ok && multiAZ {
@@ -51,6 +64,7 @@ func checkDBInstance(rc *terraform.ResourceChange) []string {
 	return recs
 }
 
+// checkInstance checks for potential cost savings on an EC2 instance.
 func checkInstance(rc *terraform.ResourceChange) []string {
 	var recs []string
 	if instanceType, ok := rc.After["instance_type"].(string); ok {
@@ -64,6 +78,7 @@ func checkInstance(rc *terraform.ResourceChange) []string {
 	return recs
 }
 
+// checkEBSVolume checks for potential cost savings on an EBS volume.
 func checkEBSVolume(rc *terraform.ResourceChange) []string {
 	if size, ok := rc.After["size"].(float64); ok && size > 20 {
 		return []string{"💡 Enable EBS snapshot lifecycle policy to manage backup costs"}
