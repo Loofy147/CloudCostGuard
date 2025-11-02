@@ -13,31 +13,33 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/swaggo/http-swagger"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
-
+	"github.com/gorilla/mux"
 	"go.uber.org/zap"
 )
 
 func NewRouter(estimatorSvc *service.Estimator, logger *zap.Logger, db *sql.DB, cache *cache.PricingCache, apiConfig config.APIConfig) http.Handler {
-	mux := http.NewServeMux()
+	router := mux.NewRouter()
 
 	// Handlers
 	estimateHandler := handlers.NewEstimateHandler(estimatorSvc, logger)
 	statusHandler := handlers.NewStatusHandler(logger, db)
 	healthHandler := handlers.NewHealthHandler(db, cache, logger)
+	historyHandler := handlers.NewHistoryHandler(db, logger)
 
 	// Protected estimate route
 	protectedEstimateHandler := middleware.APIKeyAuthMiddleware(apiConfig.APIKeys)(estimateHandler)
 
 	// Routing
-	mux.HandleFunc("/swagger/", httpSwagger.WrapHandler)
-	mux.Handle("/estimate", protectedEstimateHandler)
-	mux.Handle("/status", statusHandler)
-	mux.HandleFunc("/health/live", healthHandler.LivenessProbe)
-	mux.HandleFunc("/health/ready", healthHandler.ReadinessProbe)
-	mux.Handle("/metrics", promhttp.Handler())
+	router.HandleFunc("/swagger/", httpSwagger.WrapHandler)
+	router.Handle("/estimate", protectedEstimateHandler)
+	router.Handle("/status", statusHandler)
+	router.HandleFunc("/health/live", healthHandler.LivenessProbe)
+	router.HandleFunc("/health/ready", healthHandler.ReadinessProbe)
+	router.Handle("/metrics", promhttp.Handler())
+	router.Handle("/history/{owner}/{repo}", historyHandler)
 
 	// Middleware chaining
-	var handler http.Handler = mux
+	var handler http.Handler = router
 	handler = middleware.RateLimitMiddleware(apiConfig.RateLimitPerSecond, apiConfig.RateLimitBurst)(handler)
 	handler = middleware.MetricsMiddleware()(handler)
 	handler = middleware.TimeoutMiddleware(30*time.Second)(handler)

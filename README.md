@@ -19,10 +19,25 @@ The workflow is simple and designed to be non-intrusive to the development proce
 
 - **Client-Server Architecture:** A lightweight Go CLI communicates with a powerful backend service for all heavy lifting, ensuring a small footprint in your CI environment.
 - **Production-Ready Pricing Engine:** The backend features a pricing service that periodically fetches AWS pricing data and stores it in a PostgreSQL database for fast, reliable queries.
-- **Comprehensive Resource Coverage:** Provides monthly cost estimates for `aws_instance`, `aws_s3_bucket`, `aws_db_instance`, `aws_ebs_volume`, `aws_lb`, `aws_lambda_function`, and `aws_ecs_service`.
+- **Comprehensive Resource Coverage:** Provides monthly cost estimates for a wide range of AWS services.
 - **Flexible Configuration:** The CLI can be configured via command-line arguments, environment variables, or a `.cloudcostguard.yml` file.
 
 For a more detailed explanation of the system design, see `ARCHITECTURE.md`.
+
+## Supported Resources
+
+CloudCostGuard currently supports the following AWS resources:
+- `aws_instance`
+- `aws_db_instance`
+- `aws_ebs_volume`
+- `aws_lb`
+- `aws_s3_bucket`
+- `aws_nat_gateway`
+- `aws_lambda_function`
+- `aws_ecs_service` (Fargate launch type)
+- `aws_eks_cluster`
+- `aws_eks_node_group`
+- `aws_elasticache_cluster`
 
 ## Getting Started (Local Development)
 
@@ -81,14 +96,35 @@ In a separate terminal:
     ```
     Alternatively, you can configure this in `.cloudcostguard.yml`.
 
+## Usage
+
+The primary command for the CLI is `analyze`. This command reads a Terraform plan, sends it to the backend for cost estimation, and outputs the results.
+
+### `analyze` Command
+
+```bash
+./cloudcostguard analyze [PLAN_JSON_PATH] [REPO] [PR_NUMBER] [flags]
+```
+
+**Arguments:**
+
+- `PLAN_JSON_PATH` (optional): The path to the Terraform plan JSON file. Defaults to `plan.json`.
+- `REPO` (optional): The GitHub repository in the format `owner/repo`.
+- `PR_NUMBER` (optional): The pull request number.
+
+**Flags:**
+
+- `--region`: The AWS region to use for pricing (e.g., `us-west-2`). Overrides the region in the config file.
+- `--format`: The output format. Can be `table` (default) or `json`.
+  - `table`: Outputs a Markdown table and posts it as a comment to the specified GitHub pull request.
+  - `json`: Outputs a JSON object to standard output. This is useful for programmatic analysis in CI/CD pipelines.
+
 ## Configuration
 
 CloudCostGuard can be configured in three ways, in order of precedence:
 
-1.  **Command-line Arguments:**
-    ```bash
-    ./cloudcostguard analyze [plan_path] [repo] [pr_number]
-    ```
+1.  **Command-line Arguments and Flags:**
+    The most direct way to configure the CLI is through command-line arguments and flags.
 
 2.  **`.cloudcostguard.yml` file:**
     Create a `.cloudcostguard.yml` file in the directory where you run the CLI:
@@ -96,6 +132,13 @@ CloudCostGuard can be configured in three ways, in order of precedence:
     github:
       repo: your-org/your-repo
       pr_number: 123
+    region: us-east-1
+    usage_estimates:
+      nat_gateway_gb_processed: 100
+      lambda_monthly_requests: 1000000
+      lambda_avg_duration_ms: 500
+      s3_storage_gb: 100
+      s3_monthly_put_requests: 10000
     ```
 
 3.  **Environment Variables:**

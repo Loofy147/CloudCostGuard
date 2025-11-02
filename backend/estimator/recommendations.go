@@ -8,6 +8,9 @@ import (
 
 // GenerateRecommendations analyzes a Terraform plan and suggests cost-saving optimizations.
 func GenerateRecommendations(plan *terraform.Plan, usage *UsageEstimates) []string {
+	if plan == nil {
+		return nil
+	}
 	var recommendations []string
 	resourceCounts := make(map[string]int)
 	for _, rc := range plan.ResourceChanges {

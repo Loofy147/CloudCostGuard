@@ -13,7 +13,7 @@ import (
 )
 
 func TestEstimateHandler_InputValidation(t *testing.T) {
-	estimatorSvc := service.NewEstimator(nil, zap.NewNop())
+	estimatorSvc := service.NewEstimator(nil, zap.NewNop(), nil)
 	handler := NewEstimateHandler(estimatorSvc, zap.NewNop())
 
 	// Test with nil plan

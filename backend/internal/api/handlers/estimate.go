@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"cloudcostguard/backend/estimator"
 	"cloudcostguard/backend/internal/service"
@@ -59,6 +60,15 @@ func (h *EstimateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
         }
         return
     }
+
+	repo := r.URL.Query().Get("repo")
+	prNumberStr := r.URL.Query().Get("prNumber")
+	prNumber, _ := strconv.Atoi(prNumberStr)
+
+	if err := h.estimator.SaveEstimation(repo, prNumber, cost.TotalMonthlyCost); err != nil {
+		h.logger.Error("Failed to save estimation", zap.Error(err))
+		// We don't return an error to the user, as the cost estimation itself was successful.
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(cost); err != nil {

@@ -1,3 +1,4 @@
+// Package estimator provides the core logic for estimating the cost of Terraform plans.
 package estimator
 
 import (
@@ -22,9 +23,12 @@ type Cost struct {
 // Parameters:
 //   plan: The Terraform plan to estimate the cost of.
 //   priceList: The list of AWS prices to use for the estimation.
+//   region: The AWS region to use for pricing.
+//   usage: A struct containing usage estimates for various resources.
 //
 // Returns:
-//   A detailed breakdown of the estimated monthly cost impact.
+//   A pointer to an EstimationResponse struct containing a detailed breakdown of the estimated monthly cost impact.
+//   An error if the estimation fails.
 func Estimate(plan *terraform.Plan, priceList *pricing.PriceList, region string, usage *UsageEstimates) (*EstimationResponse, error) {
 	location := toLocation(region)
 	response := &EstimationResponse{
@@ -62,6 +66,19 @@ func Estimate(plan *terraform.Plan, priceList *pricing.PriceList, region string,
 	return response, nil
 }
 
+// estimateResourceChange calculates the cost impact of a single resource change.
+// It determines whether the resource is being created, deleted, or updated, and calculates the cost delta accordingly.
+//
+// Parameters:
+//   rc: The resource change to estimate the cost of.
+//   priceList: The list of AWS prices to use for the estimation.
+//   region: The AWS region to use for pricing.
+//   usage: A struct containing usage estimates for various resources.
+//   plan: The full Terraform plan.
+//
+// Returns:
+//   A pointer to a Cost struct representing the cost delta of the resource change.
+//   An error if the estimation fails.
 func estimateResourceChange(rc *terraform.ResourceChange, priceList *pricing.PriceList, region string, usage *UsageEstimates, plan *terraform.Plan) (*Cost, error) {
 	costChange := &Cost{Value: 0, Unit: "monthly"} // Default to monthly for aggregation
 	actions := rc.Change.Actions
@@ -96,6 +113,20 @@ func estimateResourceChange(rc *terraform.ResourceChange, priceList *pricing.Pri
 	return costChange, nil
 }
 
+// getResourceCost calculates the cost of a single resource based on its attributes.
+// It delegates to the appropriate cost function based on the resource type.
+//
+// Parameters:
+//   rc: The resource change to get the cost of.
+//   attributes: The attributes of the resource.
+//   priceList: The list of AWS prices to use for the estimation.
+//   region: The AWS region to use for pricing.
+//   usage: A struct containing usage estimates for various resources.
+//   plan: The full Terraform plan.
+//
+// Returns:
+//   A pointer to a Cost struct representing the cost of the resource.
+//   An error if the estimation fails.
 func getResourceCost(rc *terraform.ResourceChange, attributes map[string]interface{}, priceList *pricing.PriceList, region string, usage *UsageEstimates, plan *terraform.Plan) (*Cost, error) {
 	if priceList == nil {
 		return nil, fmt.Errorf("pricing data is nil")
@@ -114,8 +145,7 @@ func getResourceCost(rc *terraform.ResourceChange, attributes map[string]interfa
 		price, err := costForELB(attributes, priceList, region)
 		return &Cost{Value: price, Unit: "hourly"}, err
 	case "aws_s3_bucket":
-		// S3 pricing is per GB/month. For MVP, we use a flat $1.00/month baseline.
-		return &Cost{Value: 1.0, Unit: "monthly"}, nil
+		return costForS3(attributes, priceList, region, usage)
 	case "aws_nat_gateway":
 		price, err := costForNATGateway(attributes, priceList, region, usage)
 		return &Cost{Value: price, Unit: "hourly"}, err
@@ -130,11 +160,25 @@ func getResourceCost(rc *terraform.ResourceChange, attributes map[string]interfa
 		return costForEKS(attributes, priceList, region)
 	case "aws_eks_node_group":
 		return costForEKSNodeGroup(attributes, priceList, region)
+	case "aws_elasticache_cluster":
+		return costForElastiCache(attributes, priceList, region)
 	default:
 		return nil, fmt.Errorf("unsupported resource type: %s", rc.Type)
 	}
 }
 
+// costForNATGateway calculates the cost of an AWS NAT Gateway.
+// It includes both the hourly price and the data processing price.
+//
+// Parameters:
+//   attributes: The attributes of the NAT Gateway resource.
+//   priceList: The list of AWS prices.
+//   region: The AWS region.
+//   usage: Usage estimates, which may include NAT Gateway data processing volume.
+//
+// Returns:
+//   The estimated hourly cost of the NAT Gateway.
+//   An error if the pricing data cannot be found.
 func costForNATGateway(attributes map[string]interface{}, priceList *pricing.PriceList, region string, usage *UsageEstimates) (float64, error) {
 	var hourlyPrice, dataProcessingPrice float64
 	var err error
@@ -174,7 +218,16 @@ func costForNATGateway(attributes map[string]interface{}, priceList *pricing.Pri
 	return totalHourlyCost, nil
 }
 
-// ... (costForEC2, costForRDS, etc. now return float64, error)
+// costForEC2 calculates the cost of an AWS EC2 instance.
+//
+// Parameters:
+//   attributes: The attributes of the EC2 instance resource.
+//   priceList: The list of AWS prices.
+//   region: The AWS region.
+//
+// Returns:
+//   A pointer to a Cost struct representing the hourly cost of the EC2 instance.
+//   An error if the pricing data cannot be found.
 func costForEC2(attributes map[string]interface{}, priceList *pricing.PriceList, region string) (*Cost, error) {
 	instanceType, _ := attributes["instance_type"].(string)
 	if instanceType == "" {
@@ -198,6 +251,16 @@ func costForEC2(attributes map[string]interface{}, priceList *pricing.PriceList,
 	return nil, fmt.Errorf("could not find pricing for EC2 instance type: %s", instanceType)
 }
 
+// costForRDS calculates the cost of an AWS RDS instance.
+//
+// Parameters:
+//   attributes: The attributes of the RDS instance resource.
+//   priceList: The list of AWS prices.
+//   region: The AWS region.
+//
+// Returns:
+//   The estimated hourly cost of the RDS instance.
+//   An error if the pricing data cannot be found.
 func costForRDS(attributes map[string]interface{}, priceList *pricing.PriceList, region string) (float64, error) {
 	instanceClass, _ := attributes["instance_class"].(string)
 	if instanceClass == "" { return 0, fmt.Errorf("missing instance_class") }
@@ -211,6 +274,16 @@ func costForRDS(attributes map[string]interface{}, priceList *pricing.PriceList,
 	return 0, fmt.Errorf("could not find pricing for RDS instance class: %s", instanceClass)
 }
 
+// costForEBS calculates the cost of an AWS EBS volume.
+//
+// Parameters:
+//   attributes: The attributes of the EBS volume resource.
+//   priceList: The list of AWS prices.
+//   region: The AWS region.
+//
+// Returns:
+//   The estimated monthly cost of the EBS volume.
+//   An error if the pricing data cannot be found.
 func costForEBS(attributes map[string]interface{}, priceList *pricing.PriceList, region string) (float64, error) {
 	volumeType, _ := attributes["type"].(string)
 	if volumeType == "" { volumeType = "gp2" }
@@ -230,6 +303,16 @@ func costForEBS(attributes map[string]interface{}, priceList *pricing.PriceList,
 	return 0, fmt.Errorf("could not find pricing for EBS volume type: %s", volumeType)
 }
 
+// costForELB calculates the cost of an AWS Elastic Load Balancer.
+//
+// Parameters:
+//   attributes: The attributes of the ELB resource.
+//   priceList: The list of AWS prices.
+//   region: The AWS region.
+//
+// Returns:
+//   The estimated hourly cost of the ELB.
+//   An error if the pricing data cannot be found.
 func costForELB(attributes map[string]interface{}, priceList *pricing.PriceList, region string) (float64, error) {
 	lbType, _ := attributes["load_balancer_type"].(string)
 	if lbType == "" { lbType = "application" }
@@ -246,7 +329,15 @@ func costForELB(attributes map[string]interface{}, priceList *pricing.PriceList,
 	return 0, fmt.Errorf("could not find pricing for Load Balancer type: %s", lbType)
 }
 
-
+// getPriceFromTerms extracts the price from the terms of a product.
+//
+// Parameters:
+//   sku: The SKU of the product.
+//   priceList: The list of AWS prices.
+//
+// Returns:
+//   The price of the product.
+//   An error if the price cannot be extracted.
 func getPriceFromTerms(sku string, priceList *pricing.PriceList) (float64, error) {
 	if terms, ok := priceList.Terms.OnDemand[sku]; ok {
 		for _, term := range terms {
@@ -261,6 +352,18 @@ func getPriceFromTerms(sku string, priceList *pricing.PriceList) (float64, error
 	return 0, fmt.Errorf("could not extract price for SKU %s", sku)
 }
 
+// costForLambda calculates the cost of an AWS Lambda function.
+// It includes both the request price and the GB-second price, and accounts for the free tier.
+//
+// Parameters:
+//   attributes: The attributes of the Lambda function resource.
+//   priceList: The list of AWS prices.
+//   region: The AWS region.
+//   usage: Usage estimates, which may include Lambda monthly requests and average duration.
+//
+// Returns:
+//   A pointer to a Cost struct representing the monthly cost of the Lambda function.
+//   An error if the pricing data cannot be found.
 func costForLambda(attributes map[string]interface{}, priceList *pricing.PriceList, region string, usage *UsageEstimates) (*Cost, error) {
 	memorySize, _ := attributes["memory_size"].(float64)
 	if memorySize == 0 {
@@ -296,6 +399,7 @@ func costForLambda(attributes map[string]interface{}, priceList *pricing.PriceLi
 	}
 
 	totalMonthlyCost := 0.0
+	breakdown := "No usage data provided"
 	if usage != nil {
 		// Free tier adjustment
 		monthlyRequests := float64(usage.LambdaMonthlyRequests)
@@ -312,18 +416,33 @@ func costForLambda(attributes map[string]interface{}, priceList *pricing.PriceLi
 		}
 
 		totalMonthlyCost = requestCost + gbSecondCost
+		breakdown = fmt.Sprintf("%d requests/month @ %dms avg duration", usage.LambdaMonthlyRequests, usage.LambdaAvgDurationMS)
 	}
 
 	return &Cost{
 		Value:    totalMonthlyCost,
 		Unit:     "monthly",
-		Breakdown: fmt.Sprintf("%d requests/month @ %dms avg duration", usage.LambdaMonthlyRequests, usage.LambdaAvgDurationMS),
+		Breakdown: breakdown,
 	}, nil
 }
 
+// costForECSService calculates the cost of an AWS ECS service.
+// It currently only supports the Fargate launch type.
+//
+// Parameters:
+//   rc: The resource change for the ECS service.
+//   attributes: The attributes of the ECS service resource.
+//   priceList: The list of AWS prices.
+//   region: The AWS region.
+//   plan: The full Terraform plan.
+//
+// Returns:
+//   A pointer to a Cost struct representing the hourly cost of the ECS service.
+//   An error if the pricing data cannot be found.
 func costForECSService(rc *terraform.ResourceChange, attributes map[string]interface{}, priceList *pricing.PriceList, region string, plan *terraform.Plan) (*Cost, error) {
 	launchType, _ := attributes["launch_type"].(string)
 	if launchType != "FARGATE" {
+		// For EC2 launch type, cost is in the EC2 instances, not the service.
 		return &Cost{Value: 0, Unit: "monthly"}, nil
 	}
 
@@ -396,6 +515,15 @@ func costForECSService(rc *terraform.ResourceChange, attributes map[string]inter
 	}, nil
 }
 
+// parseFloat converts a value to a float64.
+// It can handle float64 and string types.
+//
+// Parameters:
+//   val: The value to convert.
+//
+// Returns:
+//   The converted float64 value.
+//   An error if the conversion fails.
 func parseFloat(val interface{}) (float64, error) {
 	switch v := val.(type) {
 	case float64:
@@ -407,6 +535,74 @@ func parseFloat(val interface{}) (float64, error) {
 	}
 }
 
+// costForS3 calculates the cost of an AWS S3 bucket.
+// It includes both storage and request costs.
+//
+// Parameters:
+//   attributes: The attributes of the S3 bucket resource.
+//   priceList: The list of AWS prices.
+//   region: The AWS region.
+//   usage: Usage estimates, which may include S3 storage and request data.
+//
+// Returns:
+//   A pointer to a Cost struct representing the monthly cost of the S3 bucket.
+//   An error if the pricing data cannot be found.
+func costForS3(attributes map[string]interface{}, priceList *pricing.PriceList, region string, usage *UsageEstimates) (*Cost, error) {
+	var storagePrice, putRequestPrice float64
+	var err error
+
+	for sku, product := range priceList.Products {
+		attr := product.Attributes
+		if attr.ServiceCode != "AmazonS3" || attr.Location != region {
+			continue
+		}
+
+		if attr.StorageClass == "General Purpose" && strings.Contains(attr.UsageType, "TimedStorage-ByteHrs") {
+			storagePrice, err = getPriceFromTerms(sku, priceList)
+			if err != nil {
+				return nil, fmt.Errorf("could not get storage price for S3: %w", err)
+			}
+		}
+
+		if attr.Group == "S3-Request-Tier1" {
+			putRequestPrice, err = getPriceFromTerms(sku, priceList)
+			if err != nil {
+				return nil, fmt.Errorf("could not get put request price for S3: %w", err)
+			}
+		}
+	}
+
+	if storagePrice == 0 || putRequestPrice == 0 {
+		return nil, fmt.Errorf("could not find pricing for S3")
+	}
+
+	totalMonthlyCost := 0.0
+	breakdown := "No usage data provided"
+	if usage != nil {
+		storageCost := float64(usage.S3StorageGB) * storagePrice
+		requestCost := (float64(usage.S3MonthlyPutRequests) / 1000) * putRequestPrice
+		totalMonthlyCost = storageCost + requestCost
+		breakdown = fmt.Sprintf("%d GB storage @ $%.4f/GB + %d PUT requests @ $%.4f/1000", usage.S3StorageGB, storagePrice, usage.S3MonthlyPutRequests, putRequestPrice)
+	}
+
+	return &Cost{
+		Value:    totalMonthlyCost,
+		Unit:     "monthly",
+		Breakdown: breakdown,
+	}, nil
+}
+
+// costForEKS calculates the cost of an AWS EKS cluster.
+// It includes the hourly price for the control plane.
+//
+// Parameters:
+//   attributes: The attributes of the EKS cluster resource.
+//   priceList: The list of AWS prices.
+//   region: The AWS region.
+//
+// Returns:
+//   A pointer to a Cost struct representing the hourly cost of the EKS cluster.
+//   An error if the pricing data cannot be found.
 func costForEKS(attributes map[string]interface{}, priceList *pricing.PriceList, region string) (*Cost, error) {
 	for sku, product := range priceList.Products {
 		attr := product.Attributes
@@ -425,6 +621,17 @@ func costForEKS(attributes map[string]interface{}, priceList *pricing.PriceList,
 	return nil, fmt.Errorf("could not find pricing for EKS control plane in region: %s", region)
 }
 
+// costForEKSNodeGroup calculates the cost of an AWS EKS node group.
+// It calculates the cost of the EC2 instances in the node group.
+//
+// Parameters:
+//   attributes: The attributes of the EKS node group resource.
+//   priceList: The list of AWS prices.
+//   region: The AWS region.
+//
+// Returns:
+//   A pointer to a Cost struct representing the hourly cost of the EKS node group.
+//   An error if the pricing data cannot be found.
 func costForEKSNodeGroup(attributes map[string]interface{}, priceList *pricing.PriceList, region string) (*Cost, error) {
 	instanceTypes, ok := attributes["instance_types"].([]interface{})
 	if !ok || len(instanceTypes) == 0 {
@@ -452,4 +659,42 @@ func costForEKSNodeGroup(attributes map[string]interface{}, priceList *pricing.P
 		Unit:     "hourly",
 		Breakdown: fmt.Sprintf("%d x %s @ $%.4f/hr", int(desiredSize), instanceType, ec2Cost.Value),
 	}, nil
+}
+
+// costForElastiCache calculates the cost of an AWS ElastiCache cluster.
+//
+// Parameters:
+//   attributes: The attributes of the ElastiCache cluster resource.
+//   priceList: The list of AWS prices.
+//   region: The AWS region.
+//
+// Returns:
+//   A pointer to a Cost struct representing the hourly cost of the ElastiCache cluster.
+//   An error if the pricing data cannot be found.
+func costForElastiCache(attributes map[string]interface{}, priceList *pricing.PriceList, region string) (*Cost, error) {
+	nodeType, _ := attributes["node_type"].(string)
+	if nodeType == "" {
+		return nil, fmt.Errorf("missing node_type")
+	}
+	numCacheNodes, _ := attributes["num_cache_nodes"].(float64)
+	if numCacheNodes == 0 {
+		numCacheNodes = 1
+	}
+
+	for sku, product := range priceList.Products {
+		attr := product.Attributes
+		if attr.ServiceCode == "AmazonElastiCache" && attr.InstanceType == nodeType && attr.Location == region {
+			price, err := getPriceFromTerms(sku, priceList)
+			if err != nil {
+				return nil, err
+			}
+			totalCost := price * numCacheNodes
+			return &Cost{
+				Value:    totalCost,
+				Unit:     "hourly",
+				Breakdown: fmt.Sprintf("%d x %s @ $%.4f/hr", int(numCacheNodes), nodeType, price),
+			}, nil
+		}
+	}
+	return nil, fmt.Errorf("could not find pricing for ElastiCache node type: %s", nodeType)
 }

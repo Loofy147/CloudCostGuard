@@ -5,6 +5,7 @@ import (
 	"cloudcostguard/backend/internal/api/middleware"
 	"cloudcostguard/backend/internal/cache"
 	"cloudcostguard/backend/terraform"
+	"database/sql"
 	"go.uber.org/zap"
 	"time"
 )
@@ -12,12 +13,14 @@ import (
 type Estimator struct {
 	pricingCache *cache.PricingCache
 	logger       *zap.Logger
+	db           *sql.DB
 }
 
-func NewEstimator(pricingCache *cache.PricingCache, logger *zap.Logger) *Estimator {
+func NewEstimator(pricingCache *cache.PricingCache, logger *zap.Logger, db *sql.DB) *Estimator {
 	return &Estimator{
 		pricingCache: pricingCache,
 		logger:       logger,
+		db:           db,
 	}
 }
 
@@ -41,4 +44,9 @@ type ServiceUnavailableError struct {
 
 func (e *ServiceUnavailableError) Error() string {
     return e.Message
+}
+
+func (s *Estimator) SaveEstimation(repo string, prNumber int, totalMonthlyCost float64) error {
+	_, err := s.db.Exec("INSERT INTO estimations (repository, pr_number, total_monthly_cost) VALUES ($1, $2, $3)", repo, prNumber, totalMonthlyCost)
+	return err
 }
